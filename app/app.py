@@ -145,7 +145,7 @@ def verify_turnstile(token):
         return False
 
 def notify_admin_unlock(username):
-    admin_email = "minashin.official@gmail.com"
+    admin_email = os.getenv('MAIL_ADMIN_RECIPIENT', 'minashin.official@gmail.com')
     body = f"ユーザー '{username}' からアカウントのロック解除申請がありました。\n管理パネルまたはデータベースから確認してください。"
     msg = MIMEText(body)
     msg['Subject'] = f"[stt-gemini] ロック解除申請: {username}"
