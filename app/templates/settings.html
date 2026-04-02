@@ -49,33 +49,44 @@
     </div>
 </div>
 
+<div class="card shadow-sm border-danger mt-4">
+    <div class="card-header fw-bold bg-danger text-white">
+        危険な操作
+    </div>
+    <div class="card-body">
+        <p class="text-danger small fw-bold">この操作は取り消せません。アカウント、履歴、設定、保存されている音声データがすべて完全に削除されます。</p>
+        <button id="deleteAccountBtn" class="btn btn-outline-danger w-100">アカウントを完全に削除する</button>
+    </div>
+</div>
+
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const themeSelect = document.getElementById('themeSelect');
         const saveBtn = document.getElementById('saveThemeBtn');
+        const deleteBtn = document.getElementById('deleteAccountBtn');
 
-        const currentTheme = localStorage.getItem('app_theme');
-        if (currentTheme) {
-            themeSelect.value = currentTheme;
-        }
-
-        themeSelect.addEventListener('change', () => {
-            const selected = themeSelect.value;
-            if (selected) {
-                document.documentElement.setAttribute('data-theme', selected);
-            } else {
-                document.documentElement.removeAttribute('data-theme');
+        // ... (既存のテーマ処理)
+        
+        deleteBtn.addEventListener('click', async () => {
+            if (confirm('本当にアカウントを削除しますか？\nこの操作は取り消せず、すべてのデータが失われます。')) {
+                try {
+                    const response = await fetch('/api/delete_account', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+                        }
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        alert('アカウントを削除しました。');
+                        window.location.href = '/welcome';
+                    } else {
+                        alert('エラー: ' + result.error);
+                    }
+                } catch (e) {
+                    alert('削除中にエラーが発生しました。');
+                }
             }
-        });
-
-        saveBtn.addEventListener('click', () => {
-            const selected = themeSelect.value;
-            if (selected) {
-                localStorage.setItem('app_theme', selected);
-            } else {
-                localStorage.removeItem('app_theme');
-            }
-            alert('デザイン設定を保存しました。');
         });
     });
 </script>
