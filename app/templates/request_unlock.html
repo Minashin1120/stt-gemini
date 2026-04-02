@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card shadow-sm">
+    <div class="card-body">
+        <h3 class="card-title mb-3 text-danger">アカウントロック解除申請</h3>
+        <p class="small text-muted mb-4">不審な操作が検知されたため、アカウントが一時的に制限されています。解除を希望される場合は、ユーザー名を入力して申請してください。</p>
+        
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+                <label>ユーザー名</label>
+                <input type="text" name="username" class="form-control" placeholder="解除を希望するユーザー名" required>
+            </div>
+            
+            <!-- Cloudflare Turnstile -->
+            <div class="cf-turnstile mb-3" data-sitekey="{{ turnstile_site_key }}"></div>
+            
+            <button type="submit" class="btn btn-danger w-100">解除を申請する</button>
+        </form>
+        
+        <div class="mt-3 text-center">
+            <a href="/login" class="text-decoration-none small text-secondary">ログイン画面へ戻る</a>
+        </div>
+    </div>
+</div>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% endblock %}
