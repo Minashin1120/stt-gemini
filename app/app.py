@@ -292,6 +292,11 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
+        # フォーム表示からの経過時間をチェック (ボットは極めて速いため)
+        load_time = session.pop('_form_load_time', 0)
+        if time.time() - load_time < 1.0:
+            return "Access Denied: Unnatural submission speed.", 403
+
         if is_atypical_client(request):
             flash('アクセスが拒否されました。')
             return redirect(url_for('register'))
@@ -305,6 +310,9 @@ def register():
         db.session.add(new_user); db.session.commit()
         login_user(new_user, remember=True)
         return redirect(url_for('settings'))
+    
+    # フォーム表示時刻を記録
+    session['_form_load_time'] = time.time()
     return render_template('register.html')
 
 def is_atypical_client(req):
@@ -366,9 +374,18 @@ def is_atypical_client(req):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        # フォーム表示からの経過時間をチェック (ボットは極めて速いため)
+        load_time = session.pop('_form_load_time', 0)
+        user = User.query.filter_by(username=request.form.get('username')).first()
+        
+        if time.time() - load_time < 1.0:
+            if user:
+                user.is_locked = True
+                db.session.commit()
+            return "Access Denied: Unnatural submission speed.", 403
+
         username = request.form.get('username')
         password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
         
         # Check for atypical client first to potential lock account
         if is_atypical_client(request):
@@ -388,6 +405,9 @@ def login():
                 login_user(user, remember=True)
                 return redirect(url_for('index'))
         flash('ログイン失敗。')
+    
+    # フォーム表示時刻を記録
+    session['_form_load_time'] = time.time()
     return render_template('login.html')
 
 @app.route('/logout')
