@@ -1,53 +1,53 @@
 # Gemini AI Speech-to-Text (STT)
 
-Google Gemini 3.0 Flash Preview モデルの推論能力（Thinking Process）を活用した、高精度な音声文字起こしアプリケーションです。
+A high-precision speech-to-text application leveraging the thinking capabilities (Thinking Process) of the Google Gemini 3.0 Flash Preview model.
 
-## 🚀 主な機能
+## 🚀 Key Features
 
-- **ハイブリッド音声入力**: ブラウザ上でのリアルタイム録音（MP3/WAV対応）と、音声ファイルのアップロード（ドラッグ＆ドロップ対応）の両方に対応。
-- **思考プロセスの可視化**: Gemini 3.0 Flash Preview の推論プロセスをストリーミングで表示し、AIがどのように判断したかを確認可能。
-- **AIによるテキスト改善**: 指示を与えることで、文字起こし結果を要約、翻訳、または口調の変更など、自在に加工。
-- **カスタム単語リスト**: 専門用語や固有名詞を登録し、読みを指定することで、誤字を防ぎ文字起こし精度を向上。
-- **データ保持管理**: ユーザー設定に基づき、履歴や音声ファイルを自動でクリーンアップ（5分〜1440分）。
-- **多彩なデザインテーマ**: ゲーミング、レトロ、モダンなどのテーマ切り替えに対応。
+- **Hybrid Audio Input**: Supports both real-time recording (MP3/WAV) directly in the browser and audio file uploads (drag & drop).
+- **Visualization of Thinking Process**: Stream the thinking process of Gemini 3.0 Flash Preview to see how the AI makes its decisions.
+- **AI-Powered Text Improvement**: Refine transcription results by providing instructions to summarize, translate, or change the tone.
+- **Custom Vocabulary**: Register specialized terms or proper nouns with specific readings to prevent misspellings and improve accuracy.
+- **Data Retention Management**: Automatically cleans up history and audio files based on user settings (5 to 1440 minutes).
+- **Multiple Design Themes**: Supports theme switching, including Gaming, Retro, and Modern modes.
 
-## 🛠 技術スタック
+## 🛠 Tech Stack
 
 - **Backend**: Python 3.11, Flask, SQLAlchemy (ORM), MariaDB, Gunicorn
 - **Frontend**: HTML5, JavaScript (Vanilla ES6+), Bootstrap 5.3
-- **API 通信**: Gemini REST API (Server-Sent Events によるストリーミング)
-- **インフラ**: Apache 2.4 (Reverse Proxy), Systemd, SSL (Let's Encrypt)
+- **API Communication**: Gemini REST API (Streaming via Server-Sent Events)
+- **Infrastructure**: Apache 2.4 (Reverse Proxy), Systemd, SSL (Let's Encrypt)
 
-## 📦 セットアップと実行
+## 📦 Setup and Execution
 
-### 前提条件
-- Python 3.11 以上
+### Prerequisites
+- Python 3.11 or higher
 - MariaDB
 
-### 手順
-1. **リポジトリのクローン**
-2. **依存関係のインストール**
+### Steps
+1. **Clone the Repository**
+2. **Install Dependencies**
    ```bash
    cd app
    python -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
    ```
-3. **環境設定**
-   `app/.env` ファイルを作成し、以下の項目を設定します。
-   - `SECRET_KEY`: Flaskのシークレットキー
-   - `SQLALCHEMY_DATABASE_URI`: MariaDBの接続URL
-   - `ENCRYPTION_KEY`: APIキー暗号化用のキー
-4. **実行**
+3. **Configuration**
+   Create an `app/.env` file and set the following items:
+   - `SECRET_KEY`: Flask secret key
+   - `SQLALCHEMY_DATABASE_URI`: MariaDB connection URL
+   - `ENCRYPTION_KEY`: Key for encrypting API keys
+4. **Run**
    ```bash
    python app.py
    ```
-   サーバーは `http://localhost:8003` で起動します。
+   The server will start at `http://localhost:8003`.
 
-## 📂 ディレクトリ構成
-- `app/`: アプリケーションソースコード
-  - `app.py`: メインロジック
-  - `templates/`: HTMLテンプレート
-  - `static/`: CSS, JS, 画像ファイル
-  - `uploads/`: 一時的な音声ファイル保存先
-- `引き継ぎ資料.txt`: 開発の詳細な引き継ぎ事項（非公開）
+## 📂 Directory Structure
+- `app/`: Application source code
+  - `app.py`: Main logic
+  - `templates/`: HTML templates
+  - `static/`: CSS, JS, and image files
+  - `uploads/`: Temporary audio file storage
+- `引き継ぎ資料.txt`: Detailed development handover notes (private)
