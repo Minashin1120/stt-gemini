@@ -127,7 +127,7 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 # --- Helpers ---
-import smtplib
+import subprocess
 from email.mime.text import MIMEText
 
 def verify_turnstile(token):
@@ -146,22 +146,18 @@ def verify_turnstile(token):
 
 def notify_admin_unlock(username):
     admin_email = "minashin.official@gmail.com"
-    msg = MIMEText(f"ユーザー '{username}' からアカウントのロック解除申請がありました。\n管理パネルまたはデータベースから確認してください。")
+    body = f"ユーザー '{username}' からアカウントのロック解除申請がありました。\n管理パネルまたはデータベースから確認してください。"
+    msg = MIMEText(body)
     msg['Subject'] = f"[stt-gemini] ロック解除申請: {username}"
     msg['From'] = os.getenv('MAIL_DEFAULT_SENDER', 'noreply@stt-gemini.minashin1120.com')
     msg['To'] = admin_email
 
     try:
-        server_host = os.getenv('MAIL_SERVER', 'localhost')
-        server_port = int(os.getenv('MAIL_PORT', 587))
-        with smtplib.SMTP(server_host, server_port) as server:
-            if os.getenv('MAIL_USE_TLS') == 'true':
-                server.starttls()
-            if os.getenv('MAIL_USERNAME'):
-                server.login(os.getenv('MAIL_USERNAME'), os.getenv('MAIL_PASSWORD'))
-            server.send_message(msg)
+        # Exim4 (sendmail互換コマンド) を使用
+        process = subprocess.Popen(['/usr/sbin/sendmail', '-t', '-oi'], stdin=subprocess.PIPE)
+        process.communicate(msg.as_bytes())
     except Exception as e:
-        print(f"Email notification failed: {e}")
+        print(f"Exim4 email notification failed: {e}")
 
 @app.context_processor
 def inject_site_keys():
