@@ -285,6 +285,10 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
+        if is_atypical_client(request):
+            flash('アクセスが拒否されました。')
+            return redirect(url_for('register'))
+        
         username = request.form.get('username')
         password = request.form.get('password')
         if User.query.filter_by(username=username).first():
