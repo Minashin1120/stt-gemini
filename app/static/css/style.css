@@ -1,0 +1,245 @@
+/* =========================================
+   基本設定 & 変数定義
+   ========================================= */
+:root {
+    --bg-color: #f8f9fa;
+    --text-color: #212529;
+    --card-bg: #ffffff;
+    --card-border: #dee2e6;
+    --primary-color: #0d6efd;
+    --primary-hover: #0b5ed7;
+    --navbar-bg: #ffffff;
+    --navbar-text: rgba(0,0,0,.55);
+    --input-bg: #ffffff;
+    --input-text: #212529;
+    --input-border: #ced4da;
+    --font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --radius: 0.375rem;
+    --shadow: 0 .125rem .25rem rgba(0,0,0,.075);
+    --visualizer-color: #0d6efd;
+    --visualizer-glow: none;
+}
+
+/* =========================================
+   アニメーション定義
+   ========================================= */
+
+/* RGBボーダーサイクル */
+@keyframes gaming-rgb-border {
+    0% { border-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+    20% { border-color: #ffff00; box-shadow: 0 0 10px #ffff00; }
+    40% { border-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
+    60% { border-color: #00ffff; box-shadow: 0 0 10px #00ffff; }
+    80% { border-color: #0000ff; box-shadow: 0 0 10px #0000ff; }
+    100% { border-color: #ff00ff; box-shadow: 0 0 10px #ff00ff; }
+}
+
+/* 背景ウェーブ */
+@keyframes gaming-bg-wave {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* =========================================
+   テーマ設定
+   ========================================= */
+
+/* 1. ゲーミング (Gaming) */
+html[data-theme="gaming"] {
+    --bg-color: #050505;
+    --text-color: #ffffff;
+    --card-bg: rgba(20, 20, 20, 0.9);
+    --card-border: #ff00ff;
+    --primary-color: #00ffcc;
+    --primary-hover: #00cca3;
+    --navbar-bg: rgba(0, 0, 0, 0.8);
+    --navbar-text: #ffffff;
+    --input-bg: #000000;
+    --input-text: #00ffcc;
+    --input-border: #ff00ff;
+    --font-family: "Segoe UI", Roboto, sans-serif;
+    --radius: 0px;
+    --shadow: 0 0 15px rgba(255, 0, 255, 0.4);
+    --visualizer-color: #00ffcc;
+    --visualizer-glow: 0 0 10px #00ffcc;
+}
+
+/* ゲーミング専用: 背景とアニメーション */
+html[data-theme="gaming"] body {
+    background: linear-gradient(-45deg, #1a0b1a, #0b0b1a, #000000, #1a0000);
+    background-size: 400% 400%;
+    animation: gaming-bg-wave 10s ease infinite !important;
+}
+
+html[data-theme="gaming"] .card,
+html[data-theme="gaming"] .btn-primary,
+html[data-theme="gaming"] .form-control:focus {
+    animation: gaming-rgb-border 5s linear infinite alternate;
+    border-width: 2px !important;
+}
+
+/* 2. 昭和レトロ */
+html[data-theme="retro"] {
+    --bg-color: #f4e4bc;
+    --text-color: #4e342e;
+    --card-bg: #fffcf0;
+    --card-border: #8d6e63;
+    --primary-color: #d84315;
+    --primary-hover: #bf360c;
+    --navbar-bg: #d7ccc8;
+    --navbar-text: #3e2723;
+    --input-bg: #fff8e1;
+    --input-text: #4e342e;
+    --input-border: #8d6e63;
+    --font-family: "Zen Old Mincho", serif;
+    --radius: 4px;
+    --shadow: 4px 4px 0px rgba(93, 64, 55, 0.3);
+    --visualizer-color: #d84315;
+}
+
+/* 3. エレクトロニック */
+html[data-theme="electronic"] {
+    --bg-color: #000000;
+    --text-color: #00ff00;
+    --card-bg: #001100;
+    --card-border: #003300;
+    --primary-color: #00ff00;
+    --primary-hover: #00cc00;
+    --navbar-bg: #001100;
+    --navbar-text: #00ff00;
+    --input-bg: #000000;
+    --input-text: #00ff00;
+    --input-border: #00ff00;
+    --font-family: "Courier New", monospace;
+    --radius: 0;
+    --shadow: none;
+    --visualizer-color: #00ff00;
+}
+
+/* 4. スタイリッシュ */
+html[data-theme="stylish"] {
+    --bg-color: #ffffff;
+    --text-color: #000000;
+    --card-bg: #ffffff;
+    --card-border: #000000;
+    --primary-color: #000000;
+    --primary-hover: #333333;
+    --navbar-bg: #ffffff;
+    --navbar-text: #000000;
+    --input-bg: #f8f9fa;
+    --input-text: #000000;
+    --input-border: #000000;
+    --font-family: "Helvetica Neue", sans-serif;
+    --radius: 0;
+    --shadow: 8px 8px 0px rgba(0,0,0,0.15);
+    --visualizer-color: #000000;
+}
+
+/* 5. ビジネス */
+html[data-theme="business"] {
+    --bg-color: #f1f5f9;
+    --text-color: #1e293b;
+    --card-bg: #ffffff;
+    --card-border: #cbd5e1;
+    --primary-color: #1e40af;
+    --primary-hover: #1e3a8a;
+    --navbar-bg: #1e3a8a;
+    --navbar-text: #ffffff;
+    --input-bg: #ffffff;
+    --input-text: #1e293b;
+    --input-border: #cbd5e1;
+    --font-family: "Roboto", sans-serif;
+    --radius: 4px;
+    --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+    --visualizer-color: #1e40af;
+}
+
+/* 6. Material 3 */
+html[data-theme="material3"] {
+    --bg-color: #fffbfe;
+    --text-color: #1c1b1f;
+    --card-bg: #f3edf7;
+    --card-border: transparent;
+    --primary-color: #6750a4;
+    --primary-hover: #6750a4;
+    --navbar-bg: #f3edf7;
+    --navbar-text: #1c1b1f;
+    --input-bg: #eaddff;
+    --input-text: #1c1b1f;
+    --input-border: transparent;
+    --font-family: "Roboto", sans-serif;
+    --radius: 16px;
+    --visualizer-color: #6750a4;
+}
+
+/* 7. Material 2 */
+html[data-theme="material2"] {
+    --bg-color: #fafafa;
+    --text-color: #212121;
+    --card-bg: #ffffff;
+    --card-border: transparent;
+    --primary-color: #6200ee;
+    --primary-hover: #3700b3;
+    --navbar-bg: #6200ee;
+    --navbar-text: #ffffff;
+    --input-bg: #f5f5f5;
+    --input-text: #000000;
+    --input-border: transparent;
+    --font-family: "Roboto", sans-serif;
+    --radius: 4px;
+    --shadow: 0 2px 4px rgba(0,0,0,.2);
+    --visualizer-color: #6200ee;
+}
+
+/* 8. Classic */
+html[data-theme="classic"] {
+    --bg-color: #ffffff;
+    --text-color: #000000;
+    --card-bg: #ffffff;
+    --card-border: #dcdcdc;
+    --primary-color: #4d90fe;
+    --primary-hover: #357ae8;
+    --navbar-bg: #f1f1f1;
+    --navbar-text: #000000;
+    --input-bg: #ffffff;
+    --input-text: #000000;
+    --input-border: #d9d9d9;
+    --font-family: Arial, sans-serif;
+    --radius: 2px;
+    --visualizer-color: #4d90fe;
+}
+
+/* Base Overrides */
+body {
+    background-color: var(--bg-color) !important;
+    color: var(--text-color) !important;
+    font-family: var(--font-family) !important;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+.card {
+    background-color: var(--card-bg) !important;
+    border: 1px solid var(--card-border) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow) !important;
+    color: var(--text-color) !important;
+}
+.navbar {
+    background-color: var(--navbar-bg) !important;
+    border-bottom: 1px solid var(--card-border);
+}
+.navbar-brand, .nav-link { color: var(--navbar-text) !important; }
+.btn-primary {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+    border-radius: var(--radius) !important;
+}
+.form-control, .form-select {
+    background-color: var(--input-bg) !important;
+    color: var(--input-text) !important;
+    border: 1px solid var(--input-border) !important;
+    border-radius: var(--radius) !important;
+}
+.btn-close { filter: invert(var(--invert-icon, 0)); }
+html[data-theme="gaming"] .btn-close,
+html[data-theme="electronic"] .btn-close { filter: invert(1); }

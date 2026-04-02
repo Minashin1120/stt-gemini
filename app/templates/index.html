@@ -1,0 +1,787 @@
+{% extends "base.html" %}
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+
+<style>
+    .thought-content { font-family: monospace; font-size: 0.85em; background-color: #f1f3f5; white-space: pre-wrap; max-height: 200px; overflow-y: auto; padding: 10px; border-radius: 5px; }
+    #audioVisualizer { width: 100%; height: 80px; background-color: rgba(0,0,0,0.05); border-radius: 5px; display: none; margin-bottom: 15px; }
+    html[data-theme="gaming"] #audioVisualizer { background-color: rgba(0,0,0,0.5); border: 1px solid var(--primary-color); box-shadow: var(--visualizer-glow); }
+    
+    .upload-area { border: 2px dashed #dee2e6; transition: border-color .3s, background-color .3s; cursor: pointer; }
+    .upload-area:hover { border-color: var(--primary-color); background-color: rgba(0,0,0,0.02); }
+    .upload-area.drag-over { border-color: var(--primary-color); background-color: rgba(0,0,0,0.05); }
+    html[data-theme="gaming"] .upload-area { border-color: #333; }
+    html[data-theme="gaming"] .upload-area:hover { border-color: var(--primary-color); box-shadow: 0 0 10px var(--primary-color); }
+    
+    .nav-pills .nav-link { font-weight: bold; padding: 10px 20px; color: #666; }
+    .nav-pills .nav-link.active { background-color: var(--primary-color); color: white; }
+
+    /* 履歴エリア用スタイル */
+    .history-item { border-left: 4px solid var(--primary-color); margin-bottom: 1rem; background-color: var(--card-bg); padding: 10px; border-radius: 4px; box-shadow: var(--shadow); }
+    .history-item.expired { border-left-color: gray; opacity: 0.7; }
+    .history-meta { font-size: 0.75em; color: gray; display: flex; justify-content: space-between; }
+    .history-thought { font-size: 0.8em; color: #666; border-left: 2px solid #ccc; padding-left: 8px; margin: 5px 0; max-height: 60px; overflow: hidden; cursor: pointer; }
+    .history-thought.expanded { max-height: none; }
+    .cursor-pointer { pointer: pointer; }
+</style>
+
+<div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 2000">
+    <div id="liveToast" class="toast align-items-center text-white bg-dark border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body" id="toastMessage"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<!-- モーダル類 -->
+<div class="modal fade" id="deleteModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5>音声破棄</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">音声を削除しますか？<br><small class="text-danger">再分析不可になります。</small></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-danger" id="confirmDeleteBtn">削除</button></div></div></div></div>
+
+<div class="modal fade" id="fileManagerModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">保存データ (10分保持)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="alert alert-info py-1 mb-2" style="font-size: 0.8rem;"><i class="bi bi-info-circle me-1"></i>保存データは文字起こし結果に影響します。</div><div id="fileListContainer" class="list-group list-group-flush"></div></div><div class="modal-footer"><button class="btn btn-primary" onclick="loadFileMetadata()">更新</button></div></div></div></div>
+
+<div class="modal fade" id="wordSetModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">単語リストの有効化</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="d-flex justify-content-between align-items-center mb-3"><p class="small text-muted mb-0">使用する単語セットにチェックを入れてください。</p><button type="button" class="btn btn-sm btn-outline-secondary" onclick="resetWordSets()">選択リセット</button></div><div id="wordSetListContainer" class="list-group list-group-flush"></div></div><div class="modal-footer"><button type="button" class="btn btn-sm btn-link me-auto" onclick="openWordSetManageModal()">リストの編集・作成</button><button class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button></div></div></div></div>
+
+<!-- 単語リスト管理用モーダル -->
+<div class="modal fade" id="wordSetManageModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">単語リスト管理</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="card shadow-sm mb-4 border-0 bg-light">
+                    <div class="card-body py-2">
+                        <label class="form-label small fw-bold mb-1">新しいセットを作成</label>
+                        <form id="createSetForm" class="row g-2">
+                            <div class="col"><input type="text" name="name" class="form-control form-control-sm" placeholder="セット名 (例: 専門用語)" required></div>
+                            <div class="col-auto"><button type="submit" class="btn btn-sm btn-primary">作成</button></div>
+                        </form>
+                    </div>
+                </div>
+                
+                <div id="manageSelectorContainer" class="mb-3">
+                    <select id="manageSetSelector" class="form-select form-select-sm mb-3">
+                        <option value="">-- 管理するセットを選択してください --</option>
+                    </select>
+                </div>
+
+                <div id="wordSetsManageContainer">
+                    <!-- HTML partial will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#wordSetModal" onclick="loadWordSetStatus()">戻る</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- メイン操作エリア (左側/上部) -->
+    <div class="col-lg-8">
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-body text-center">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h3 class="text-primary fw-bold mb-0">音声入力</h3>
+                    <div class="d-flex gap-2">
+                        <button id="btnWordSet" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#wordSetModal" onclick="loadWordSetStatus()"><i class="bi bi-journal-text"></i> 単語リスト</button>
+                        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#fileManagerModal" onclick="loadFileMetadata()"><i class="bi bi-folder"></i> データ</button>
+                        <button id="btnReset" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash3-fill"></i> 一括削除</button>
+                    </div>
+                </div>
+
+                <ul class="nav nav-pills justify-content-center mb-4 gap-2" id="inputMethodTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active rounded-pill border" id="record-tab" data-bs-toggle="pill" data-bs-target="#recordMode" type="button" role="tab"><i class="bi bi-mic-fill me-1"></i> 録音</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link rounded-pill border" id="upload-tab" data-bs-toggle="pill" data-bs-target="#uploadMode" type="button" role="tab"><i class="bi bi-cloud-arrow-up-fill me-1"></i> アップロード</button>
+                    </li>
+                </ul>
+
+                <div class="tab-content" id="inputMethodTabsContent">
+                    <!-- 録音モード -->
+                    <div class="tab-pane fade show active" id="recordMode" role="tabpanel">
+                        <canvas id="audioVisualizer"></canvas>
+                        <div class="d-flex justify-content-center gap-3 align-items-center mb-3">
+                            <div class="btn-group" role="group"><input type="radio" class="btn-check" name="format" id="fmt_mp3" value="mp3" checked><label class="btn btn-outline-secondary btn-sm" for="fmt_mp3">MP3</label><input type="radio" class="btn-check" name="format" id="fmt_wav" value="wav"><label class="btn btn-outline-secondary btn-sm" for="fmt_wav">WAV</label></div>
+                            <div class="vr"></div>
+                            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="noiseSuppression" checked><label class="small ms-1">ノイズ除去</label></div>
+                        </div>
+                        <div class="d-flex justify-content-center flex-wrap gap-2 mb-2">
+                            <button id="btnRecordNew" class="btn btn-danger btn-lg rounded-pill px-4"><i class="bi bi-mic-fill"></i> 新規</button>
+                            <button id="btnRecordAppend" class="btn btn-outline-danger btn-lg rounded-pill px-4"><i class="bi bi-plus-circle"></i> 追加</button>
+                            <button id="btnPause" class="btn btn-warning btn-lg rounded-pill px-4" disabled><i class="bi bi-pause-fill"></i></button>
+                            <button id="btnStop" class="btn btn-secondary btn-lg rounded-pill px-4" disabled><i class="bi bi-stop-fill"></i> 停止</button>
+                            <button id="btnCancel" class="btn btn-outline-dark btn-lg rounded-pill px-4" disabled><i class="bi bi-x-circle"></i></button>
+                        </div>
+                    </div>
+
+                    <!-- アップロードモード -->
+                    <div class="tab-pane fade" id="uploadMode" role="tabpanel">
+                        <div class="mb-4">
+                            <div id="dropArea" class="upload-area rounded-3 p-4">
+                                <i class="bi bi-cloud-arrow-up display-4 text-primary"></i>
+                                <p class="mt-2 text-muted">ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+                                <input type="file" id="audioFileInput" class="d-none" accept="audio/*">
+                                <button class="btn btn-primary btn-sm mt-1" onclick="document.getElementById('audioFileInput').click()">ファイルを選択</button>
+                            </div>
+                            <div id="fileSelectionInfo" class="mt-3 p-2 bg-light rounded d-none border">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center text-truncate">
+                                        <i class="bi bi-file-earmark-music fs-4 me-2 text-primary"></i>
+                                        <div class="text-start overflow-hidden">
+                                            <div id="selectedFileName" class="fw-bold text-truncate small">ファイル名</div>
+                                            <div id="selectedFileSize" class="text-muted" style="font-size: 0.7rem;">サイズ</div>
+                                        </div>
+                                    </div>
+                                    <button id="btnRemoveFile" class="btn btn-outline-danger btn-sm border-0"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-center gap-2 mb-2">
+                            <button id="btnTranscribe" class="btn btn-primary btn-lg rounded-pill px-5 shadow-sm" disabled><i class="bi bi-send-fill me-2"></i> 送信して文字起こし</button>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-4">
+
+                <div class="row mb-3 justify-content-center">
+                    <div class="col-md-6 text-start">
+                        <label class="form-label small fw-bold mb-1 text-muted"><i class="bi bi-cpu"></i> 推論レベル</label>
+                        <select id="thinking_level" class="form-select form-select-sm">
+                            <option value="MINIMAL">Minimal (速い・思考プロセス非表示)</option>
+                            <option value="LOW" selected>Low (標準)</option>
+                            <option value="MEDIUM">Medium (高品質)</option>
+                            <option value="HIGH">High (最高品質・遅い)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="status" class="small fw-bold text-muted">準備完了</div>
+            </div>
+        </div>
+
+        <div class="accordion mb-3 shadow-sm" id="thinkingAccordion">
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header"><button id="btnCollapse" class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThinking"><i class="bi bi-cpu me-2"></i> 推論プロセス</button></h2>
+                <div id="collapseThinking" class="accordion-collapse collapse"><div class="accordion-body thought-content text-muted" id="thoughtText"></div></div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                <span class="fw-bold">結果</span>
+                <div class="btn-group shadow-sm">
+                    <button id="btnCopy" class="btn btn-outline-primary btn-sm" disabled><i class="bi bi-clipboard"></i></button>
+                    <button id="btnReanalyze" class="btn btn-outline-warning btn-sm" disabled><i class="bi bi-arrow-clockwise"></i> 再分析</button>
+                    <button id="btnOpenDel" class="btn btn-outline-danger btn-sm" disabled data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash"></i></button>
+                </div>
+            </div>
+            <div class="card-body p-0"><textarea id="resultText" class="form-control border-0" rows="10" placeholder="..." style="resize:none;"></textarea></div>
+        </div>
+
+        <div class="card shadow-sm border-info mb-5">
+            <div class="card-header bg-info text-white py-2 fw-bold"><i class="bi bi-magic me-2"></i>改善</div>
+            <div class="card-body">
+                <div class="mb-2"><div class="form-check"><input class="form-check-input" type="checkbox" id="useAudioForImprove"><label class="form-check-label small" for="useAudioForImprove">音声も参照</label></div></div>
+                <div class="input-group"><input type="text" id="instructionInput" class="form-control" placeholder="例: 要約して"><button id="btnImprove" class="btn btn-info text-white">実行</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 履歴エリア (右側/下部) -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center fw-bold">
+                <span><i class="bi bi-clock-history me-2"></i>履歴</span>
+            </div>
+            <div class="card-body p-2" style="background-color: var(--bg-color);">
+                <div class="alert alert-warning py-1 mb-2" style="font-size: 0.75rem;">
+                    <i class="bi bi-exclamation-triangle me-1"></i>履歴と保存データは文字起こし結果に影響します。
+                </div>
+                <div id="historyContainer" style="max-height: 800px; overflow-y: auto;">
+                    <div class="text-center text-muted small py-3">履歴なし</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- Global Utilities ---
+function showToast(m, e=false) {
+    const msgEl = document.getElementById('toastMessage');
+    const toastEl = document.getElementById('liveToast');
+    if (msgEl && toastEl) {
+        msgEl.innerText = m;
+        toastEl.classList.toggle('bg-danger', e);
+        bootstrap.Toast.getOrCreateInstance(toastEl).show();
+    }
+}
+
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+function csrfFetch(input, init = {}) {
+    const headers = new Headers(init.headers || {});
+    if (csrfToken && !headers.has('X-CSRFToken')) {
+        headers.set('X-CSRFToken', csrfToken);
+    }
+    return fetch(input, { ...init, headers });
+}
+
+// --- Word Set Manager (Global Scope) ---
+window.loadWordSetStatus = async function() {
+    const container = document.getElementById('wordSetListContainer');
+    if (!container) return;
+    container.innerHTML = '<div class="text-center py-2">読み込み中...</div>';
+    try {
+        const r = await csrfFetch('/api/word_sets');
+        const sets = await r.json();
+        updateWordSetButtonText(sets);
+        if (sets.length === 0) {
+            container.innerHTML = '<div class="text-center py-3 text-muted">セットがありません。<br><button type="button" class="btn btn-sm btn-link p-0 align-baseline" onclick="openWordSetManageModal()">新しく作成</button></div>';
+            return;
+        }
+        container.innerHTML = sets.map(s => `
+            <div class="list-group-item d-flex justify-content-between align-items-center p-2">
+                <span class="fw-bold">${escapeHtml(s.name)}</span>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="ws_${s.id}" ${s.is_active ? 'checked' : ''} onchange="toggleWordSet(${s.id})">
+                </div>
+            </div>
+        `).join('');
+    } catch(e) { container.innerHTML = 'エラー'; }
+};
+
+window.toggleWordSet = async function(id) {
+    try {
+        const r = await csrfFetch(`/api/word_sets/toggle/${id}`, {method:'POST'});
+        if(r.ok) { 
+            showToast("単語セットの有効/無効を切り替えました");
+            const r2 = await csrfFetch('/api/word_sets');
+            const sets = await r2.json();
+            updateWordSetButtonText(sets);
+        } else {
+            showToast("切り替え失敗", true);
+        }
+    } catch(e){ showToast("通信エラー", true); }
+};
+
+window.resetWordSets = async function() {
+    try {
+        const r = await csrfFetch('/api/word_sets/reset', {method:'POST'});
+        if(r.ok) {
+            showToast("すべてのセットを無効化しました");
+            loadWordSetStatus(); // リストとボタン両方を更新
+        }
+    } catch(e) { showToast("通信エラー", true); }
+};
+
+// --- Word Set Management Modal Logic ---
+let currentManageSetId = "";
+window.openWordSetManageModal = async function() {
+    const manageModal = new bootstrap.Modal(document.getElementById('wordSetManageModal'));
+    const activationModal = bootstrap.Modal.getInstance(document.getElementById('wordSetModal'));
+    if (activationModal) activationModal.hide();
+    manageModal.show();
+    await refreshManageList(currentManageSetId);
+};
+
+async function refreshManageList(selectedId = "") {
+    const container = document.getElementById('wordSetsManageContainer');
+    const selector = document.getElementById('manageSetSelector');
+    
+    // 1. セット一覧 (JSON) を取得してセレクターを更新
+    const resSets = await csrfFetch('/api/word_sets');
+    const sets = await resSets.json();
+    selector.innerHTML = '<option value="">-- 管理するセットを選択してください --</option>' + 
+        sets.map(s => `<option value="${s.id}" ${s.id == selectedId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+    
+    // 2. 管理用HTML (Partial) を取得してコンテナを更新
+    const resHtml = await csrfFetch('/api/word_sets/manage_html');
+    const html = await resHtml.text(); 
+    container.innerHTML = html;
+
+    currentManageSetId = selectedId.toString();
+    updateManageVisibility();
+}
+
+function updateManageVisibility() {
+    const container = document.getElementById('wordSetsManageContainer');
+    const cards = container.querySelectorAll('.word-set-card');
+    cards.forEach(card => {
+        card.style.display = (card.dataset.id === currentManageSetId) ? 'block' : 'none';
+    });
+}
+
+// モーダル内のイベントリスナー設定
+document.addEventListener('DOMContentLoaded', () => {
+    const selector = document.getElementById('manageSetSelector');
+    const container = document.getElementById('wordSetsManageContainer');
+
+    selector.addEventListener('change', () => {
+        currentManageSetId = selector.value;
+        updateManageVisibility();
+    });
+
+    document.getElementById('createSetForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const res = await csrfFetch('/api/word_sets/create', { method: 'POST', body: formData });
+        if (res.ok) {
+            const data = await res.json();
+            e.target.reset();
+            await refreshManageList(data.id);
+        }
+    });
+
+    container.addEventListener('click', async (e) => {
+        const target = e.target;
+        if (target.closest('.delete-set-btn')) {
+            if (!confirm('このセットを削除しますか？')) return;
+            const id = target.closest('.delete-set-btn').dataset.id;
+            await csrfFetch(`/api/word_sets/delete/${id}`, { method: 'POST' });
+            await refreshManageList("");
+        }
+        if (target.closest('.delete-word-btn')) {
+            const id = target.closest('.delete-word-btn').dataset.id;
+            await csrfFetch(`/api/words/delete/${id}`, { method: 'POST' });
+            await refreshManageList(currentManageSetId);
+        }
+    });
+
+    container.addEventListener('submit', async (e) => {
+        if (e.target.classList.contains('add-word-form')) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            await csrfFetch('/api/words/add', { method: 'POST', body: formData });
+            await refreshManageList(currentManageSetId);
+        }
+    });
+});
+
+function updateWordSetButtonText(sets) {
+    const btn = document.getElementById('btnWordSet');
+    if (!btn) return;
+    const activeNames = sets.filter(s => s.is_active).map(s => s.name);
+    if (activeNames.length > 0) {
+        btn.innerHTML = `<i class="bi bi-journal-check"></i> ${escapeHtml(activeNames.join(', '))}`;
+        btn.classList.remove('btn-outline-primary');
+        btn.classList.add('btn-primary', 'text-white');
+    } else {
+        btn.innerHTML = `<i class="bi bi-journal-text"></i> 単語リスト`;
+        btn.classList.remove('btn-primary', 'text-white');
+        btn.classList.add('btn-outline-primary');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    let selectedFile = null, mediaRecorder, audioContext, processor, microphone, mp3Encoder, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [];
+    
+    // UI Elements
+    const canvas = document.getElementById("audioVisualizer"), ctx = canvas.getContext("2d");
+    const dropArea = document.getElementById('dropArea');
+    const fileInput = document.getElementById('audioFileInput');
+    const fileInfo = document.getElementById('fileSelectionInfo');
+    const fileNameEl = document.getElementById('selectedFileName');
+    const fileSizeEl = document.getElementById('selectedFileSize');
+    const removeFileBtn = document.getElementById('btnRemoveFile');
+    const btnTranscribe = document.getElementById('btnTranscribe');
+
+    const bsDelModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    const thoughtCol = new bootstrap.Collapse(document.getElementById('collapseThinking'), {toggle:false});
+    
+    const el = {
+        recNew: document.getElementById('btnRecordNew'), recAdd: document.getElementById('btnRecordAppend'),
+        pause: document.getElementById('btnPause'), stop: document.getElementById('btnStop'), cancel: document.getElementById('btnCancel'),
+        copy: document.getElementById('btnCopy'), imp: document.getElementById('btnImprove'), stat: document.getElementById('status'),
+        res: document.getElementById('resultText'), tho: document.getElementById('thoughtText'),
+        ins: document.getElementById('instructionInput'), think: document.getElementById('thinking_level'),
+        noise: document.getElementById('noiseSuppression'), useAudio: document.getElementById('useAudioForImprove'),
+        re: document.getElementById('btnReanalyze'), delBtn: document.getElementById('btnOpenDel'),
+        hist: document.getElementById('historyContainer'), reset: document.getElementById('btnReset')
+    };
+
+    function saveSet(){ 
+        localStorage.setItem('stt_t', el.think.value);
+        if(el.noise) localStorage.setItem('stt_n', el.noise.checked);
+        const fmt = document.querySelector('input[name="format"]:checked');
+        if(fmt) localStorage.setItem('stt_f', fmt.value);
+    }
+    
+    const t=localStorage.getItem('stt_t'), n=localStorage.getItem('stt_n'), f=localStorage.getItem('stt_f');
+    if(t) el.think.value=t;
+    if(n!==null && el.noise) el.noise.checked=(n==='true');
+    if(f) { const r = document.querySelector(`input[name="format"][value="${f}"]`); if(r) r.checked=true; }
+    
+    el.think.addEventListener('change', saveSet);
+    if(el.noise) el.noise.addEventListener('change', saveSet);
+    document.querySelectorAll('input[name="format"]').forEach(r=>r.addEventListener('change', saveSet));
+    
+    loadHistory(); 
+    loadWordSetStatus();
+
+    // --- File Upload UI Logic ---
+    function handleFileSelect(file) {
+        if (!file) return;
+        if (!file.type.startsWith('audio/') && !file.name.toLowerCase().endsWith('.mp3') && !file.name.toLowerCase().endsWith('.wav') && !file.name.toLowerCase().endsWith('.m4a')) {
+            showToast("音声ファイルを選択してください", true);
+            return;
+        }
+        selectedFile = file;
+        fileNameEl.innerText = file.name;
+        fileSizeEl.innerText = (file.size / (1024 * 1024)).toFixed(2) + " MB";
+        fileInfo.classList.remove('d-none');
+        btnTranscribe.disabled = false;
+        el.stat.innerText = "ファイルが選択されました";
+    }
+
+    dropArea.onclick = () => fileInput.click();
+    fileInput.onchange = (e) => handleFileSelect(e.target.files[0]);
+
+    dropArea.ondragover = (e) => { e.preventDefault(); dropArea.classList.add('drag-over'); };
+    dropArea.ondragleave = () => dropArea.classList.remove('drag-over');
+    dropArea.ondrop = (e) => {
+        e.preventDefault();
+        dropArea.classList.remove('drag-over');
+        handleFileSelect(e.dataTransfer.files[0]);
+    };
+
+    removeFileBtn.onclick = (e) => {
+        e.stopPropagation();
+        selectedFile = null;
+        fileInput.value = "";
+        fileInfo.classList.add('d-none');
+        btnTranscribe.disabled = true;
+        el.stat.innerText = "準備完了";
+    };
+
+    // --- History Functions ---
+    async function loadHistory() {
+        try {
+            const r = await csrfFetch('/api/history');
+            const data = await r.json();
+            if(data.length === 0) { el.hist.innerHTML = '<div class="text-center text-muted small py-3">履歴なし</div>'; return; }
+            
+            el.hist.innerHTML = data.map(h => `
+                <div class="history-item ${h.expired ? 'expired' : ''}">
+                    <div class="history-meta">
+                        <span>${escapeHtml(h.action.toUpperCase())}</span>
+                        <div>
+                            <span class="me-2">${escapeHtml(h.time)}</span>
+                            <i class="bi bi-trash text-danger cursor-pointer" onclick="deleteHistoryItem(${h.id})" title="削除"></i>
+                        </div>
+                    </div>
+                    ${h.input ? `<div class="small fw-bold text-truncate">${escapeHtml(h.input)}</div>` : ''}
+                    ${h.thought ? `<div class="history-thought" onclick="this.classList.toggle('expanded')" title="クリックで展開">${escapeHtml(h.thought.substring(0,50))}${h.thought.length > 50 ? '...' : ''}</div>` : ''}
+                    <div class="small mt-1" style="white-space:pre-wrap;">${h.result ? `${escapeHtml(h.result.substring(0, 100))}${h.result.length>100?'...':''}` : '(結果なし)'}</div>
+                </div>
+            `).join('');
+        } catch(e){}
+    }
+
+    window.deleteHistoryItem = async (id) => {
+        if(!confirm('この履歴を削除しますか？')) return;
+        try {
+            const r = await csrfFetch(`/api/delete_history/${id}`, {method:'POST'});
+            if(r.ok) { showToast("履歴を削除しました"); loadHistory(); }
+        } catch(e){ showToast("削除失敗", true); }
+    };
+
+    el.reset.onclick = async () => {
+        if(!confirm('すべての履歴と保存データを削除して、完全に新しいセッションを開始しますか？')) return;
+        try {
+            const r = await csrfFetch('/api/clear_all', {method:'POST'});
+            if(r.ok) {
+                showToast("セッションと保存データをリセットしました");
+                el.res.value = "";
+                el.tho.innerText = "";
+                el.re.disabled = el.delBtn.disabled = true;
+                loadHistory();
+            } else {
+                showToast("リセットに失敗しました", true);
+            }
+        } catch(e) { showToast("通信エラー", true); }
+    };
+
+    // --- File Manager ---
+    window.loadFileMetadata = async function() {
+        const c = document.getElementById('fileListContainer'); c.innerHTML = 'Loading...';
+        try {
+            const r = await csrfFetch('/api/files'); const files = await r.json();
+            c.innerHTML = files.length ? files.map(f => `
+                <div class="list-group-item d-flex justify-content-between align-items-center p-2">
+                    <div class="flex-grow-1 me-2"><div class="small fw-bold">${escapeHtml(f.display_name)}</div><audio controls src="${escapeHtml(f.url)}" style="height:25px;width:100%"></audio></div>
+                    <button class="btn btn-outline-danger btn-sm delete-file-btn" data-filename="${escapeHtml(f.filename)}"><i class="bi bi-trash"></i></button>
+                </div>`).join('') : '<div class="text-center py-2 text-muted">保存された音声はありません</div>';
+        } catch(e){ c.innerHTML='エラー'; }
+    };
+
+    window.deleteFileItem = async (filename) => {
+        if(!confirm('このファイルを削除しますか？')) return;
+        try {
+            const r = await csrfFetch(`/api/delete_file/${filename}`, {method:'POST'});
+            if(r.ok) { showToast("ファイルを削除しました"); loadFileMetadata(); }
+        } catch(e){ showToast("削除失敗", true); }
+    };
+    document.getElementById('fileListContainer').addEventListener('click', (e) => {
+        const btn = e.target.closest('.delete-file-btn');
+        if (btn) {
+            deleteFileItem(btn.dataset.filename);
+        }
+    });
+
+    // --- Visualizer & Audio ---
+    function vis(s){
+        if(!audioContext) audioContext=new AudioContext();
+        const src=audioContext.createMediaStreamSource(s), ana=audioContext.createAnalyser();
+        ana.fftSize=2048; src.connect(ana);
+        const data=new Uint8Array(ana.frequencyBinCount);
+        canvas.style.display="block";
+        (function draw(){
+            if(!isRecording) return;
+            requestAnimationFrame(draw); ana.getByteTimeDomainData(data);
+            ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+            ctx.lineWidth=2; 
+            const tm=document.documentElement.getAttribute('data-theme');
+            ctx.strokeStyle = tm==='gaming' ? `hsl(${Date.now()/10%360},100%,50%)` : getComputedStyle(document.body).getPropertyValue('--primary-color');
+            ctx.beginPath();
+            let x=0, sw=canvas.width/data.length;
+            const sensitivity = 8.0; 
+            for(let i=0;i<data.length;i++){
+                let v = ((data[i] - 128.0) * sensitivity / 128.0) + 1.0;
+                let y = v * canvas.height / 2;
+                if (y < 0) y = 0;
+                if (y > canvas.height) y = canvas.height;
+                i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); x+=sw;
+            }
+            ctx.stroke();
+        })();
+    }
+
+    // --- Stream & Upload ---
+    let sseBuffer = "";
+    async function handleStreamResponse(r) {
+        const reader=r.body.getReader(), dec=new TextDecoder();
+        el.tho.innerText=""; 
+        let streamHadError = false;
+        if(!isAppendMode) {
+            el.res.value="";
+            initText="";
+        }
+        else { let cur=el.res.value.trim(); initText=cur?cur+"\n\n":""; el.res.value=initText; }
+        
+        if(el.think.value!=='MINIMAL') thoughtCol.show();
+        
+        let stT="";
+        sseBuffer = "";
+        try {
+            while(true){
+                const {done,value}=await reader.read(); if(done)break;
+                sseBuffer += dec.decode(value, {stream: true});
+                const lines = sseBuffer.split('\n\n');
+                sseBuffer = lines.pop();
+
+                lines.forEach(l=>{
+                    if(l.startsWith('data: ')){
+                        try{
+                            const d=JSON.parse(l.substring(6));
+                            if(d.type==='thought'){ el.tho.innerText+=d.content; el.tho.scrollTop=el.tho.scrollHeight; }
+                            else if(d.type==='text'){ stT+=d.content; el.res.value=initText+stT; el.res.scrollTop=el.res.scrollHeight; }
+                            else if(d.type==='error') {
+                                streamHadError = true;
+                                showToast(d.content,true);
+                            }
+                        }catch(e){}
+                    }
+                });
+            }
+        } catch(e){
+            streamHadError = true;
+            showToast("Error",true);
+        }
+        finally {
+            if (streamHadError) {
+                el.stat.innerText="エラー";
+                el.copy.disabled = true;
+                el.re.disabled = true;
+                el.delBtn.disabled = true;
+                return;
+            }
+            el.stat.innerText="完了";
+            el.copy.disabled=el.re.disabled=el.delBtn.disabled=false;
+            showToast("完了");
+            loadHistory();
+        }
+    }
+
+    btnTranscribe.onclick = async () => {
+        if (!selectedFile) return;
+        isAppendMode=false;
+        el.stat.innerText = "アップロード中...";
+        btnTranscribe.disabled = true;
+        const fd = new FormData();
+        fd.append('audio_file', selectedFile);
+        fd.append('thinking_level', el.think.value);
+        try {
+            const r = await csrfFetch('/transcribe', { method: 'POST', body: fd });
+            if (!r.ok) {
+                const err = await r.json();
+                showToast(err.error || "エラーが発生しました", true);
+                el.stat.innerText = "エラー";
+                return;
+            }
+            await handleStreamResponse(r);
+        } catch (e) {
+            showToast("通信エラー", true);
+            el.stat.innerText = "通信エラー";
+        } finally {
+            btnTranscribe.disabled = false;
+        }
+    };
+
+    async function rec(append=false) {
+        isAppendMode=append; if(!append){el.tho.innerText="";el.res.value="";initText="";}
+        el.copy.disabled=true; el.stat.innerText="準備中...";
+        if(audioStream) {
+            audioStream.getTracks().forEach(track => track.stop());
+            audioStream = null;
+        }
+
+        try {
+            const useProcessing = el.noise.checked;
+            const constraints = {
+                audio: {
+                    echoCancellation: useProcessing,
+                    noiseSuppression: useProcessing,
+                    autoGainControl: useProcessing,
+                    googEchoCancellation: useProcessing,
+                    googAutoGainControl: useProcessing,
+                    googNoiseSuppression: useProcessing,
+                    googHighpassFilter: useProcessing
+                }
+            };
+            
+            audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+            isRecording=true; isPaused=false; vis(audioStream);
+            const fmt=document.querySelector('input[name="format"]:checked').value;
+            
+            if(fmt==='mp3'){
+                if(!audioContext) audioContext = new AudioContext();
+                const sampleRate = audioContext.sampleRate;
+                microphone = audioContext.createMediaStreamSource(audioStream);
+                processor = audioContext.createScriptProcessor(8192, 1, 1);
+                mp3Encoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
+                audioChunks = [];
+                
+                processor.onaudioprocess = e => {
+                    if(isPaused) return;
+                    const b = e.inputBuffer.getChannelData(0);
+                    const d = new Int16Array(b.length);
+                    for(let i=0; i<b.length; i++) {
+                        let s = Math.max(-1, Math.min(1, b[i]));
+                        d[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    const c = mp3Encoder.encodeBuffer(d);
+                    if(c.length > 0) audioChunks.push(c);
+                };
+                microphone.connect(processor);
+                processor.connect(audioContext.destination);
+            } else {
+                const recorderOptions = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                    ? { mimeType: 'audio/webm;codecs=opus' }
+                    : {};
+                mediaRecorder = new MediaRecorder(audioStream, recorderOptions);
+                audioChunks = [];
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = () => upl(new Blob(audioChunks,{type: mediaRecorder.mimeType || 'audio/webm'}), 'rec.webm');
+                mediaRecorder.start();
+            }
+            el.recNew.disabled=el.recAdd.disabled=true; el.stop.disabled=el.pause.disabled=el.cancel.disabled=false;
+            const noiseLabel = useProcessing ? '<span class="badge bg-primary ms-1">ノイズ除去: ON</span>' : '<span class="badge bg-secondary ms-1">ノイズ除去: OFF</span>';
+            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${noiseLabel}`; showToast(`録音開始`);
+        } catch(e){ el.stat.innerText="エラー"; showToast(e.message,true); }
+    }
+
+    el.recNew.onclick=()=>rec(false); el.recAdd.onclick=()=>rec(true);
+    el.pause.onclick=()=>{
+        isPaused=!isPaused;
+        if(isPaused){ if(mediaRecorder)mediaRecorder.pause(); el.stat.innerText="一時停止"; el.pause.innerHTML='<i class="bi bi-play-fill"></i>';}
+        else{ if(mediaRecorder)mediaRecorder.resume(); el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span>`; el.pause.innerHTML='<i class="bi bi-pause-fill"></i>';}
+    };
+    el.cancel.onclick=()=>{
+        isRecording=false; isPaused=false;
+        if(mediaRecorder){ mediaRecorder.onstop = null; mediaRecorder.stop(); }
+        if(audioStream)audioStream.getTracks().forEach(t=>t.stop());
+        if(audioContext)audioContext.close(); audioContext=null;
+        audioChunks=[]; mp3Encoder=null;
+        el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
+        el.stat.innerText="キャンセル"; showToast("キャンセルしました");
+    };
+    el.stop.onclick=()=>{
+        isRecording=false; el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
+        el.stat.innerText="解析中...";
+        if(mp3Encoder){
+            microphone.disconnect(); processor.disconnect(); audioContext.close(); audioContext=null;
+            const l=mp3Encoder.flush(); if(l.length>0)audioChunks.push(l); audioStream.getTracks().forEach(t=>t.stop());
+            upl(new Blob(audioChunks,{type:'audio/mp3'}),'rec.mp3'); mp3Encoder=null;
+        } else { mediaRecorder.stop(); audioStream.getTracks().forEach(t=>t.stop()); }
+    };
+
+    async function upl(b,n){
+        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value);
+        try{
+            const r=await csrfFetch('/transcribe',{method:'POST',body:fd});
+            if(!r.ok){
+                const err = await r.json().catch(() => ({}));
+                showToast(err.error || "エラーが発生しました", true);
+                el.stat.innerText = "エラー";
+                return;
+            }
+            await handleStreamResponse(r);
+        }catch(e){ showToast("通信エラー",true); }
+    }
+
+    el.re.onclick=async()=>{
+        isAppendMode=false;
+        el.stat.innerText="再分析中...";
+        try{ const r=await csrfFetch('/reanalyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({thinking_level:el.think.value})});
+        if(!r.ok){ showToast("エラー",true); return; } await handleStreamResponse(r); }catch(e){ showToast("失敗",true); }
+    };
+
+    el.imp.onclick=async()=>{
+        const t=el.res.value, i=el.ins.value; if(!t||!i){showToast("入力してください",true);return;}
+        isAppendMode=false; el.stat.innerText="改善中..."; el.imp.disabled=true;
+        try{
+            const r=await csrfFetch('/improve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t,instruction:i,thinking_level:el.think.value,use_audio:el.useAudio.checked})});
+            if(!r.ok){
+                const err = await r.json().catch(() => ({}));
+                showToast(err.error || "エラーが発生しました", true);
+                el.stat.innerText = "エラー";
+                return;
+            }
+            await handleStreamResponse(r);
+            el.ins.value="";
+        }finally{ el.imp.disabled=false; }
+    };
+    el.ins.onkeypress=e=>{if(e.key==='Enter')el.imp.click();};
+    document.getElementById('confirmDeleteBtn').onclick=async()=>{
+        bsDelModal.hide();
+        try{ const r=await csrfFetch('/delete_audio',{method:'POST'}); if(r.ok){ showToast("削除しました"); el.stat.innerText="削除済み"; el.re.disabled=el.delBtn.disabled=true; } }catch(e){}
+    };
+    el.copy.onclick=()=>{ navigator.clipboard.writeText(el.res.value).then(()=>showToast("コピーしました")); };
+});
+</script>
+{% endblock %}
