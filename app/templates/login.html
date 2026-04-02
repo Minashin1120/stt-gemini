@@ -14,8 +14,15 @@
                 <label>パスワード</label>
                 <input type="password" name="password" class="form-control" required>
             </div>
-            <button type="submit" class="btn btn-primary">ログイン</button>
+            <!-- Cloudflare Turnstile -->
+            <div class="cf-turnstile mb-3" data-sitekey="{{ turnstile_site_key }}"></div>
+            
+            <button type="submit" class="btn btn-primary w-100 mb-3">ログイン</button>
+            <div class="text-center">
+                <a href="/request_unlock" class="text-decoration-none small text-danger">アカウントがロックされましたか？ 解除を申請する</a>
+            </div>
         </form>
     </div>
 </div>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {% endblock %}

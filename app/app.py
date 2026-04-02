@@ -86,6 +86,7 @@ class User(UserMixin, db.Model):
     encrypted_api_key = db.Column(db.Text, nullable=True)
     retention_minutes = db.Column(db.Integer, default=10, nullable=False)
     is_locked = db.Column(db.Boolean, default=False)
+    unlock_requested = db.Column(db.Boolean, default=False)
 
     def set_api_key(self, api_key):
         if api_key:
@@ -126,6 +127,46 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 # --- Helpers ---
+import smtplib
+from email.mime.text import MIMEText
+
+def verify_turnstile(token):
+    secret = os.getenv('TURNSTILE_SECRET_KEY')
+    if not secret or not token:
+        return False
+    try:
+        res = requests.post(
+            'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+            data={'secret': secret, 'response': token},
+            timeout=10
+        )
+        return res.json().get('success', False)
+    except:
+        return False
+
+def notify_admin_unlock(username):
+    admin_email = "minashin.official@gmail.com"
+    msg = MIMEText(f"ユーザー '{username}' からアカウントのロック解除申請がありました。\n管理パネルまたはデータベースから確認してください。")
+    msg['Subject'] = f"[stt-gemini] ロック解除申請: {username}"
+    msg['From'] = os.getenv('MAIL_DEFAULT_SENDER', 'noreply@stt-gemini.minashin1120.com')
+    msg['To'] = admin_email
+
+    try:
+        server_host = os.getenv('MAIL_SERVER', 'localhost')
+        server_port = int(os.getenv('MAIL_PORT', 587))
+        with smtplib.SMTP(server_host, server_port) as server:
+            if os.getenv('MAIL_USE_TLS') == 'true':
+                server.starttls()
+            if os.getenv('MAIL_USERNAME'):
+                server.login(os.getenv('MAIL_USERNAME'), os.getenv('MAIL_PASSWORD'))
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Email notification failed: {e}")
+
+@app.context_processor
+def inject_site_keys():
+    return {'turnstile_site_key': os.getenv('TURNSTILE_SITE_KEY')}
+
 def get_word_list_context(user_id):
     active_sets = WordSet.query.filter_by(user_id=user_id, is_active=True).all()
     if not active_sets:
@@ -366,7 +407,13 @@ def is_atypical_client(req):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        # フォーム表示からの経過時間をチェック (ボットは極めて速いため)
+        # Turnstile Check
+        turnstile_token = request.form.get('cf-turnstile-response')
+        if not verify_turnstile(turnstile_token):
+            flash('ロボットではないことを証明してください。')
+            return redirect(url_for('login'))
+
+        # フォーム表示からの経過時間をチェック
         load_time = session.pop('_form_load_time', 0)
         user = User.query.filter_by(username=request.form.get('username')).first()
         
@@ -384,14 +431,14 @@ def login():
             if user:
                 user.is_locked = True
                 db.session.commit()
-                flash('不審なクライアントからのアクセスが検知されたため、アカウントを一時的にロックしました。管理者にお問い合わせください。')
+                flash('不審なクライアントからのアクセスが検知されたため、アカウントを一時的にロックしました。解除が必要な場合は下記から申請してください。')
             else:
                 flash('アクセスが拒否されました。')
             return redirect(url_for('login'))
 
         if user:
             if user.is_locked:
-                flash('アカウントがロックされています。管理者にお問い合わせください。')
+                flash('アカウントがロックされています。解除が必要な場合は下記から申請してください。')
                 return redirect(url_for('login'))
             if check_password_hash(user.password, password):
                 login_user(user, remember=True)
@@ -401,6 +448,37 @@ def login():
     # フォーム表示時刻を記録
     session['_form_load_time'] = time.time()
     return render_template('login.html')
+
+@app.route('/request_unlock', methods=['GET', 'POST'])
+def request_unlock():
+    if request.method == 'POST':
+        # Turnstile Check
+        turnstile_token = request.form.get('cf-turnstile-response')
+        if not verify_turnstile(turnstile_token):
+            flash('ロボットではないことを証明してください。')
+            return redirect(url_for('request_unlock'))
+
+        username = request.form.get('username')
+        user = User.query.filter_by(username=username).first()
+        if user:
+            if not user.is_locked:
+                flash('このアカウントはロックされていません。')
+                return redirect(url_for('login'))
+            
+            if user.unlock_requested:
+                flash('解除申請は既に送信済みです。管理者の対応をお待ちください。')
+                return redirect(url_for('login'))
+            
+            user.unlock_requested = True
+            db.session.commit()
+            notify_admin_unlock(username)
+            flash('解除申請を送信しました。管理者の対応をお待ちください。')
+            return redirect(url_for('login'))
+        
+        flash('ユーザーが見つかりません。')
+        return redirect(url_for('request_unlock'))
+
+    return render_template('request_unlock.html')
 
 @app.route('/logout')
 def logout():
