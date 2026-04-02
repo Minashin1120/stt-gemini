@@ -47,6 +47,23 @@ def inject_csrf_token():
     return {'csrf_token': get_csrf_token}
 
 @app.before_request
+def check_security():
+    # ログイン済みユーザーのロック状態をチェック
+    if current_user.is_authenticated:
+        if current_user.is_locked:
+            logout_user()
+            flash('アカウントがロックされています。管理者にお問い合わせください。')
+            return redirect(url_for('login'))
+        
+        # 操作中に不審なクライアントを検知した場合もロック
+        if is_atypical_client(request):
+            current_user.is_locked = True
+            db.session.commit()
+            logout_user()
+            flash('不審なクライアント操作が検知されたため、アカウントをロックしました。')
+            return redirect(url_for('login'))
+
+@app.before_request
 def protect_csrf():
     if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.endpoint not in CSRF_EXEMPT_ENDPOINTS:
         session_token = session.get('csrf_token')
@@ -61,6 +78,7 @@ class User(UserMixin, db.Model):
     password = db.Column(db.String(255), nullable=False)
     encrypted_api_key = db.Column(db.Text, nullable=True)
     retention_minutes = db.Column(db.Integer, default=10, nullable=False)
+    is_locked = db.Column(db.Boolean, default=False)
 
     def set_api_key(self, api_key):
         if api_key:
@@ -278,15 +296,42 @@ def register():
         return redirect(url_for('settings'))
     return render_template('register.html')
 
+def is_atypical_client(req):
+    ua = (req.headers.get('User-Agent') or '').lower()
+    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia']
+    if not ua or any(kw in ua for kw in atypical_ua_keywords):
+        return True
+    # Modern browser checks for sensitive actions (like POST)
+    if req.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        # Sec-Fetch-Dest is standard in modern browsers
+        if not req.headers.get('Sec-Fetch-Dest'):
+            return True
+    return False
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
         user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password, password):
-            login_user(user, remember=True)
-            return redirect(url_for('index'))
+        
+        # Check for atypical client first to potential lock account
+        if is_atypical_client(request):
+            if user:
+                user.is_locked = True
+                db.session.commit()
+                flash('不審なクライアントからのアクセスが検知されたため、アカウントを一時的にロックしました。管理者にお問い合わせください。')
+            else:
+                flash('アクセスが拒否されました。')
+            return redirect(url_for('login'))
+
+        if user:
+            if user.is_locked:
+                flash('アカウントがロックされています。管理者にお問い合わせください。')
+                return redirect(url_for('login'))
+            if check_password_hash(user.password, password):
+                login_user(user, remember=True)
+                return redirect(url_for('index'))
         flash('ログイン失敗。')
     return render_template('login.html')
 
