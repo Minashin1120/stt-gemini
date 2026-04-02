@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header fw-bold">
+        API設定
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">Gemini APIキーを入力してください。キーは安全に暗号化されて保存されます。</p>
+        <div class="alert alert-{% if has_key %}success{% else %}warning{% endif %} py-2">
+            ステータス: {% if has_key %}APIキー設定済み (暗号化されています){% else %}APIキーが未設定です{% endif %}
+        </div>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+                <label>Gemini API キー</label>
+                <input type="password" name="api_key" class="form-control" placeholder="AIzaSy...">
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">履歴・データの保持時間 (分)</label>
+                <input type="number" name="retention_minutes" class="form-control" value="{{ current_user.retention_minutes }}" min="1" max="1440" required>
+                <div class="form-text">録音データや会話履歴を保持する時間（分）を設定します。この時間を過ぎると自動的に削除されます。</div>
+            </div>
+            <button type="submit" class="btn btn-success">設定を保存</button>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header fw-bold">
+        アプリケーション設定
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <label class="form-label fw-bold">デザインテーマ</label>
+            <select id="themeSelect" class="form-select">
+                <option value="">モダン (デフォルト)</option>
+                <option value="material3">Material 3 (最新Google風)</option>
+                <option value="material2">Material 2 (クラシックMaterial)</option>
+                <option value="classic">Classic Google (レトロウェブ)</option>
+                <option value="gaming">ゲーミング (Gaming)</option>
+                <option value="electronic">エレクトロニック (Cyber)</option>
+                <option value="retro">昭和レトロ</option>
+                <option value="stylish">スタイリッシュ</option>
+                <option value="business">ビジネス</option>
+            </select>
+            <div class="form-text">選択するとプレビューが即座に適用されます。</div>
+        </div>
+        <button id="saveThemeBtn" class="btn btn-primary">デザイン設定を保存</button>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const themeSelect = document.getElementById('themeSelect');
+        const saveBtn = document.getElementById('saveThemeBtn');
+
+        const currentTheme = localStorage.getItem('app_theme');
+        if (currentTheme) {
+            themeSelect.value = currentTheme;
+        }
+
+        themeSelect.addEventListener('change', () => {
+            const selected = themeSelect.value;
+            if (selected) {
+                document.documentElement.setAttribute('data-theme', selected);
+            } else {
+                document.documentElement.removeAttribute('data-theme');
+            }
+        });
+
+        saveBtn.addEventListener('click', () => {
+            const selected = themeSelect.value;
+            if (selected) {
+                localStorage.setItem('app_theme', selected);
+            } else {
+                localStorage.removeItem('app_theme');
+            }
+            alert('デザイン設定を保存しました。');
+        });
+    });
+</script>
+{% endblock %}

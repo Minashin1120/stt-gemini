@@ -1,0 +1,54 @@
+{% for ws in word_sets %}
+<div class="card shadow-sm mb-3 border-{% if ws.is_active %}primary{% else %}secondary{% endif %} word-set-card" data-id="{{ ws.id }}" style="display: none;">
+    <div class="card-header d-flex justify-content-between align-items-center bg-{% if ws.is_active %}primary text-white{% else %}light{% endif %} py-2">
+        <div>
+            <span class="fw-bold">{{ ws.name }}</span>
+            {% if ws.is_active %}<span class="badge bg-light text-primary ms-2 small">有効中</span>{% endif %}
+        </div>
+        <button type="button" class="btn btn-sm {% if ws.is_active %}btn-outline-light{% else %}btn-outline-danger{% endif %} delete-set-btn" data-id="{{ ws.id }}" title="セットを削除">
+            <i class="bi bi-trash"></i>
+        </button>
+    </div>
+    <div class="card-body py-2">
+        <div class="table-responsive mb-2">
+            <table class="table table-sm align-middle mb-0" style="font-size: 0.9rem;">
+                <thead>
+                    <tr>
+                        <th style="width: 40%">読み (検知)</th>
+                        <th style="width: 40%">変換後 (単語)</th>
+                        <th style="width: 20%"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for word in ws.words %}
+                    <tr>
+                        <td>{{ word.reading }}</td>
+                        <td>{{ word.replacement }}</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-link text-danger p-0 delete-word-btn" data-id="{{ word.id }}">削除</button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="text-center text-muted small py-2">単語が登録されていません。</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <form class="add-word-form row g-2 mt-1">
+            <input type="hidden" name="set_id" value="{{ ws.id }}">
+            <div class="col">
+                <input type="text" name="reading" class="form-control form-control-sm" placeholder="読み" required>
+            </div>
+            <div class="col">
+                <input type="text" name="replacement" class="form-control form-control-sm" placeholder="変換後" required>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-success">追加</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endfor %}

@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+app/venv/
+.venv/
+
+# Environment / secrets
+.env
+app/.env
+
+# Logs
+*.log
+app/access.log
+app/error.log
+
+# Python / app runtime artifacts
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+app/uploads/
+app/__pycache__/
+
+# Local data and personal files
+cookies.txt
+test.mp3
+.bash_history
+.bash_logout
+.bashrc
+.profile
+.sudo_as_admin_successful
+.codex/
+.gemini/
+.npm/
+.cache/
+.local/
+
+# OS / editor
+.DS_Store
+Thumbs.db
