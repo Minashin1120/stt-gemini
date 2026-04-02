@@ -48,20 +48,27 @@ def inject_csrf_token():
 
 @app.before_request
 def check_security():
-    # ログイン済みユーザーのロック状態をチェック
+    # 常にクライアントの整合性をチェック
+    atypical = is_atypical_client(request)
+    
     if current_user.is_authenticated:
+        # ロック済みユーザーは即座にログアウト
         if current_user.is_locked:
             logout_user()
             flash('アカウントがロックされています。管理者にお問い合わせください。')
             return redirect(url_for('login'))
         
-        # 操作中に不審なクライアントを検知した場合もロック
-        if is_atypical_client(request):
+        # 操作中に「おかしな点」があればその場でロック
+        if atypical:
             current_user.is_locked = True
             db.session.commit()
             logout_user()
-            flash('不審なクライアント操作が検知されたため、アカウントをロックしました。')
+            flash('不審な操作が検知されたため、セキュリティ保護によりアカウントをロックしました。')
             return redirect(url_for('login'))
+    else:
+        # 未ログインでも不審なリクエスト（ボットの偵察など）は遮断
+        if atypical:
+            return "Access Denied: Suspected Automated Access", 403
 
 @app.before_request
 def protect_csrf():
@@ -301,15 +308,59 @@ def register():
     return render_template('register.html')
 
 def is_atypical_client(req):
+    # 1. User-Agent keywords
     ua = (req.headers.get('User-Agent') or '').lower()
-    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia']
+    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia', 'httpie', 'wget', 'urllib', 'axios', 'libvlc']
     if not ua or any(kw in ua for kw in atypical_ua_keywords):
         return True
-    # Modern browser checks for sensitive actions (like POST)
-    if req.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
-        # Sec-Fetch-Dest is standard in modern browsers
-        if not req.headers.get('Sec-Fetch-Dest'):
+
+    # 2. Basic Browser Headers check (Browsers ALWAYS send these with specific patterns)
+    essential_headers = {
+        'Accept': ['text/html', 'application/xhtml+xml', 'application/xml', '*/*'],
+        'Accept-Encoding': ['gzip', 'deflate', 'br', 'zstd'],
+        'Accept-Language': [',', ';'] # Languages usually have q-values like "ja,en-US;q=0.9"
+    }
+    for h, expected_keywords in essential_headers.items():
+        val = req.headers.get(h)
+        if not val:
             return True
+        # If the value is too simple (e.g. just "*"), it's often a script default
+        if h == 'Accept-Language' and len(val) < 2:
+            return True
+
+    # 3. Modern Browser Fingerprinting (Sec-Fetch-*, Sec-Ch-Ua)
+    if req.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        # Honey-pot field check (Highly sensitive)
+        if req.form.get('_honey_field'):
+            return True
+
+        # Sec-Fetch-Dest/Mode/Site are standard for modern browsers
+        # Mode: 'navigate' for page loads, 'cors' or 'no-cors' for others
+        if not req.headers.get('Sec-Fetch-Dest') or not req.headers.get('Sec-Fetch-Mode'):
+            return True
+        
+        # Sec-Fetch-Site should usually be 'same-origin' or 'same-site' for internal POSTs
+        site = req.headers.get('Sec-Fetch-Site')
+        if site not in ['same-origin', 'same-site']:
+            # Exception for some external auth? No, this app uses internal login/register.
+            return True
+
+        # Sec-Ch-Ua consistency
+        if 'chrome' in ua and not req.headers.get('Sec-Ch-Ua'):
+            return True
+
+        # 4. Referer Check
+        referer = req.headers.get('Referer')
+        if not referer:
+            return True
+        if not (req.host in referer):
+            return True
+            
+    # 5. Suspicious Connection Header
+    # Browsers usually send 'keep-alive' or similar, not 'close' by default in initial requests
+    if req.headers.get('Connection', '').lower() == 'close' and req.method == 'POST':
+        return True
+
     return False
 
 @app.route('/login', methods=['GET', 'POST'])
