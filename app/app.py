@@ -318,31 +318,23 @@ def register():
 def is_atypical_client(req):
     # 1. User-Agent keywords
     ua = (req.headers.get('User-Agent') or '').lower()
-    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia', 'httpie', 'wget', 'urllib', 'axios', 'libvlc']
+    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia', 'httpie', 'wget', 'urllib', 'axios', 'libvlc', 'phantomjs', 'headless', 'selenium', 'playwright', 'puppeteer']
     if not ua or any(kw in ua for kw in atypical_ua_keywords):
         return True
 
-    # 2. Basic Browser Headers check (Browsers ALWAYS send these with specific patterns)
-    essential_headers = {
-        'Accept': ['text/html', 'application/xhtml+xml', 'application/xml', '*/*'],
-        'Accept-Encoding': ['gzip', 'deflate', 'br', 'zstd'],
-        'Accept-Language': [',', ';'] # Languages usually have q-values like "ja,en-US;q=0.9"
-    }
-    for h, expected_keywords in essential_headers.items():
-        val = req.headers.get(h)
-        if not val:
-            return True
-        # If the value is too simple (e.g. just "*"), it's often a script default
-        if h == 'Accept-Language' and len(val) < 2:
+    # 2. JavaScript Challenge Check (Required for all POSTs)
+    if req.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        js_challenge = req.form.get('_js_challenge')
+        csrf_token = session.get('csrf_token')
+        # Expecting 'valid_<csrf_token>' set by client-side JS
+        if not js_challenge or js_challenge != f"valid_{csrf_token}":
             return True
 
-    # 3. Modern Browser Fingerprinting (Sec-Fetch-*, Sec-Ch-Ua)
-    if req.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
         # Honey-pot field check (Highly sensitive)
         if req.form.get('_honey_field'):
             return True
 
-        # Sec-Fetch-Dest/Mode/Site are standard for modern browsers
+    # 3. Basic Browser Headers check
         # Mode: 'navigate' for page loads, 'cors' or 'no-cors' for others
         if not req.headers.get('Sec-Fetch-Dest') or not req.headers.get('Sec-Fetch-Mode'):
             return True
@@ -419,6 +411,14 @@ def logout():
 @login_required
 def settings():
     if request.method == 'POST':
+        # 設定変更時のセキュリティチェック
+        if is_atypical_client(request):
+            current_user.is_locked = True
+            db.session.commit()
+            logout_user()
+            flash('不審な操作が検知されました。')
+            return redirect(url_for('login'))
+
         api_key = request.form.get('api_key')
         retention_minutes = request.form.get('retention_minutes')
         
@@ -440,6 +440,33 @@ def settings():
         
         db.session.commit()
     return render_template('settings.html', has_key=current_user.encrypted_api_key is not None)
+
+@app.route('/api/delete_account', methods=['POST'])
+@login_required
+def delete_account():
+    user_id = current_user.id
+    try:
+        # 1. 関連ファイルの削除
+        user_prefix = f"user_{user_id}_"
+        if os.path.exists(app.config['UPLOAD_FOLDER']):
+            for f in os.listdir(app.config['UPLOAD_FOLDER']):
+                if f.startswith(user_prefix):
+                    try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
+                    except: pass
+        
+        # 2. データベースレコードの削除 (History, WordSet, User)
+        History.query.filter_by(user_id=user_id).delete()
+        WordSet.query.filter_by(user_id=user_id).delete()
+        user = db.session.get(User, user_id)
+        db.session.delete(user)
+        db.session.commit()
+        
+        logout_user()
+        session.clear()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 # --- Word List Routes ---
 @app.route('/api/word_sets/manage_html')

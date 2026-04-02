@@ -20,6 +20,21 @@
         @keyframes blink { 50% { opacity: 0; } }
     </style>
     <script>
+        // JS Challenge: 動的にフォームへトークンを注入 (自動化対策)
+        document.addEventListener('DOMContentLoaded', function() {
+            const forms = document.querySelectorAll('form');
+            const csrf = document.querySelector('meta[name="csrf-token"]').content;
+            forms.forEach(f => {
+                if (f.method.toUpperCase() === 'POST') {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = '_js_challenge';
+                    input.value = 'valid_' + csrf;
+                    f.appendChild(input);
+                }
+            });
+        });
+
         // テーマ初期化
         (function() {
             const savedTheme = localStorage.getItem('app_theme');
