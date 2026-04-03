@@ -5,7 +5,9 @@
         <h3 class="card-title mb-3">ユーザー登録</h3>
         <form method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div style="display:none;"><input type="text" name="_honey_field"></div>
+            <div style="display:none;" aria-hidden="true">
+                <input type="text" name="_honey_field" tabindex="-1" autocomplete="off">
+            </div>
             <div class="mb-3">
                 <label>ユーザー名</label>
                 <input type="text" name="username" class="form-control" required>
@@ -14,8 +16,12 @@
                 <label>パスワード</label>
                 <input type="password" name="password" class="form-control" required>
             </div>
-            <button type="submit" class="btn btn-primary">登録する</button>
+            <!-- Cloudflare Turnstile -->
+            <div class="cf-turnstile mb-3" data-sitekey="{{ turnstile_site_key }}"></div>
+            
+            <button type="submit" class="btn btn-primary w-100">登録する</button>
         </form>
     </div>
 </div>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {% endblock %}

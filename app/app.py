@@ -5,6 +5,7 @@ import base64
 import time
 import threading
 import secrets
+import logging
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response, stream_with_context, session, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -15,6 +16,10 @@ from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
@@ -65,7 +70,8 @@ def check_security():
             pass
     else:
         # 未ログインでも不審なリクエストは遮断 (POSTのみにするなど緩和)
-        if atypical and request.method != 'GET':
+        # ただしログイン・登録・解除申請ルートは個別に制御するため除外
+        if atypical and request.method != 'GET' and request.endpoint not in {'login', 'register', 'request_unlock', 'welcome'}:
             return "Access Denied: Suspected Automated Access", 403
 
 @app.before_request
@@ -327,13 +333,21 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
+        # Turnstile Check
+        turnstile_token = request.form.get('cf-turnstile-response')
+        if not verify_turnstile(turnstile_token):
+            flash('ロボットではないことを証明してください。')
+            return redirect(url_for('register'))
+
         # フォーム表示からの経過時間をチェック (ボットは極めて速いため)
         load_time = session.pop('_form_load_time', 0)
-        if time.time() - load_time < 0.5:
+        elapsed = time.time() - load_time
+        if elapsed < 0.5:
+            logger.warning(f"Registration rejected: Too fast submission ({elapsed:.2f}s)")
             return "Access Denied: Unnatural submission speed.", 403
 
         if is_atypical_client(request):
-            flash('アクセスが拒否されました。')
+            flash('不審なアクセスが検知されました。ブラウザの設定を確認してください。')
             return redirect(url_for('register'))
         
         username = request.form.get('username')
@@ -352,23 +366,37 @@ def register():
 
 def is_atypical_client(req):
     # 1. User-Agent keywords
-    ua = (req.headers.get('User-Agent') or '').lower()
+    ua_raw = req.headers.get('User-Agent') or ''
+    ua = ua_raw.lower()
     
-    # 一般的なブラウザに含まれるキーワードがあれば許可する
-    common_browser_keywords = ['mozilla', 'chrome', 'safari', 'applewebkit', 'edge', 'trident']
+    # 一般的なブラウザに含まれるキーワード
+    common_browser_keywords = ['mozilla', 'chrome', 'safari', 'applewebkit', 'edge', 'trident', 'firefox']
     is_common_browser = any(kw in ua for kw in common_browser_keywords)
     
     # 明らかに自動化ツールなもの
-    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia', 'httpie', 'wget', 'urllib', 'axios', 'phantomjs', 'headless', 'selenium', 'playwright', 'puppeteer']
+    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia', 'httpie', 'wget', 'urllib', 'axios', 'phantomjs', 'selenium', 'playwright', 'puppeteer']
     
+    # 判定とロギング
     if not ua:
-        return True
+        if req.method != 'GET':
+            logger.warning(f"Atypical client: Missing User-Agent on {req.method} {req.path}")
+            return True
+        return False
         
-    if any(kw in ua for kw in atypical_ua_keywords):
-        return True
+    for kw in atypical_ua_keywords:
+        if kw in ua:
+            # 'headless' は除外 (Google Botなどが含まれる可能性があるため、より具体的に)
+            # ただし 'headless' が単体で入っている場合は不審
+            if kw == 'headless' and 'chrome' in ua:
+                # HeadlessChrome は自動化の強い兆候
+                logger.warning(f"Atypical client: Automation tool detected in UA: {kw} (UA: {ua_raw})")
+                return True
+            logger.warning(f"Atypical client: Automation tool detected in UA: {kw} (UA: {ua_raw})")
+            return True
     
-    # 一般的なブラウザキーワードが含まれていない場合は不審とする
-    if not is_common_browser:
+    # 一般的なブラウザキーワードが含まれていない場合は不審とする (POST等のみ)
+    if not is_common_browser and req.method != 'GET':
+        logger.warning(f"Atypical client: No common browser keywords in UA: {ua_raw}")
         return True
 
     # 2. JavaScript Challenge Check (Required for all POSTs)
@@ -382,10 +410,12 @@ def is_atypical_client(req):
         csrf_token = session.get('csrf_token')
         # Expecting 'valid_<csrf_token>' set by client-side JS
         if not js_challenge or js_challenge != f"valid_{csrf_token}":
+            logger.warning(f"Atypical client: JS Challenge failed or missing. Expected 'valid_{csrf_token}', got '{js_challenge}'")
             return True
 
         # Honey-pot field check (Highly sensitive)
         if req.form.get('_honey_field'):
+            logger.warning(f"Atypical client: Honey-pot field filled: {req.form.get('_honey_field')}")
             return True
 
     return False
@@ -436,6 +466,10 @@ def request_unlock():
             flash('ロボットではないことを証明してください。')
             return redirect(url_for('request_unlock'))
 
+        if is_atypical_client(request):
+            flash('不審な操作が検知されました。ブラウザの設定や拡張機能を確認してください。')
+            return redirect(url_for('request_unlock'))
+
         username = request.form.get('username')
         user = User.query.filter_by(username=username).first()
         if user:
@@ -469,9 +503,8 @@ def settings():
     if request.method == 'POST':
         # 設定変更時のセキュリティチェック
         if is_atypical_client(request):
-            logout_user()
-            flash('不審な操作が検知されました。再度ログインしてください。')
-            return redirect(url_for('login'))
+            flash('不審な操作が検知されました。ブラウザの設定や拡張機能を確認してください。')
+            return redirect(url_for('settings'))
 
         api_key = request.form.get('api_key')
         retention_minutes = request.form.get('retention_minutes')
