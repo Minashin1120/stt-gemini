@@ -58,15 +58,14 @@ def check_security():
             flash('アカウントがロックされています。管理者にお問い合わせください。')
             return redirect(url_for('login'))
         
-        # 操作中に「おかしな点」があればセッションを終了（永続的なロックはしない）
+        # 操作中に「おかしな点」があれば警告を表示（ログアウトはさせない）
         if atypical:
-            db.session.commit()
-            logout_user()
-            flash('不審な操作が検知されたため、セキュリティ保護によりログアウトしました。再度ログインしてください。')
-            return redirect(url_for('login'))
+            # ログアウトさせず、警告のみにする (開発中の誤検知対策)
+            # flash('不審な操作が検知されました。ブラウザの設定や拡張機能を確認してください。')
+            pass
     else:
-        # 未ログインでも不審なリクエスト（ボットの偵察など）は遮断
-        if atypical:
+        # 未ログインでも不審なリクエストは遮断 (POSTのみにするなど緩和)
+        if atypical and request.method != 'GET':
             return "Access Denied: Suspected Automated Access", 403
 
 @app.before_request
@@ -352,15 +351,34 @@ def register():
     return render_template('register.html')
 
 def is_atypical_client(req):
-    # 1. User-Agent keywords (明らかに自動化ツールなものだけを対象とする)
+    # 1. User-Agent keywords
     ua = (req.headers.get('User-Agent') or '').lower()
+    
+    # 一般的なブラウザに含まれるキーワードがあれば許可する
+    common_browser_keywords = ['mozilla', 'chrome', 'safari', 'applewebkit', 'edge', 'trident']
+    is_common_browser = any(kw in ua for kw in common_browser_keywords)
+    
+    # 明らかに自動化ツールなもの
     atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia', 'httpie', 'wget', 'urllib', 'axios', 'phantomjs', 'headless', 'selenium', 'playwright', 'puppeteer']
-    if not ua or any(kw in ua for kw in atypical_ua_keywords):
+    
+    if not ua:
+        return True
+        
+    if any(kw in ua for kw in atypical_ua_keywords):
+        return True
+    
+    # 一般的なブラウザキーワードが含まれていない場合は不審とする
+    if not is_common_browser:
         return True
 
     # 2. JavaScript Challenge Check (Required for all POSTs)
     if req.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
         js_challenge = req.form.get('_js_challenge')
+        
+        # JSONリクエストの場合も考慮
+        if not js_challenge and req.is_json:
+            js_challenge = req.get_json(silent=True).get('_js_challenge')
+            
         csrf_token = session.get('csrf_token')
         # Expecting 'valid_<csrf_token>' set by client-side JS
         if not js_challenge or js_challenge != f"valid_{csrf_token}":

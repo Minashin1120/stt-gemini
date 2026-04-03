@@ -238,6 +238,25 @@ function csrfFetch(input, init = {}) {
     if (csrfToken && !headers.has('X-CSRFToken')) {
         headers.set('X-CSRFToken', csrfToken);
     }
+    
+    // JS Challenge injection for fetch
+    const method = (init.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        if (init.body instanceof FormData) {
+            if (!init.body.has('_js_challenge')) {
+                init.body.append('_js_challenge', 'valid_' + csrfToken);
+            }
+        } else if (typeof init.body === 'string') {
+            try {
+                const obj = JSON.parse(init.body);
+                obj._js_challenge = 'valid_' + csrfToken;
+                init.body = JSON.stringify(obj);
+            } catch (e) {
+                // Not JSON, skip or handle as URLSearchParams if needed
+            }
+        }
+    }
+    
     return fetch(input, { ...init, headers });
 }
 
