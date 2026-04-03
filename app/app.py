@@ -58,12 +58,11 @@ def check_security():
             flash('アカウントがロックされています。管理者にお問い合わせください。')
             return redirect(url_for('login'))
         
-        # 操作中に「おかしな点」があればその場でロック
+        # 操作中に「おかしな点」があればセッションを終了（永続的なロックはしない）
         if atypical:
-            current_user.is_locked = True
             db.session.commit()
             logout_user()
-            flash('不審な操作が検知されたため、セキュリティ保護によりアカウントをロックしました。')
+            flash('不審な操作が検知されたため、セキュリティ保護によりログアウトしました。再度ログインしてください。')
             return redirect(url_for('login'))
     else:
         # 未ログインでも不審なリクエスト（ボットの偵察など）は遮断
@@ -331,7 +330,7 @@ def register():
     if request.method == 'POST':
         # フォーム表示からの経過時間をチェック (ボットは極めて速いため)
         load_time = session.pop('_form_load_time', 0)
-        if time.time() - load_time < 1.0:
+        if time.time() - load_time < 0.5:
             return "Access Denied: Unnatural submission speed.", 403
 
         if is_atypical_client(request):
@@ -353,9 +352,9 @@ def register():
     return render_template('register.html')
 
 def is_atypical_client(req):
-    # 1. User-Agent keywords
+    # 1. User-Agent keywords (明らかに自動化ツールなものだけを対象とする)
     ua = (req.headers.get('User-Agent') or '').lower()
-    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia', 'httpie', 'wget', 'urllib', 'axios', 'libvlc', 'phantomjs', 'headless', 'selenium', 'playwright', 'puppeteer']
+    atypical_ua_keywords = ['python-requests', 'curl', 'go-http-client', 'postmanruntime', 'insomnia', 'httpie', 'wget', 'urllib', 'axios', 'phantomjs', 'headless', 'selenium', 'playwright', 'puppeteer']
     if not ua or any(kw in ua for kw in atypical_ua_keywords):
         return True
 
@@ -370,33 +369,6 @@ def is_atypical_client(req):
         # Honey-pot field check (Highly sensitive)
         if req.form.get('_honey_field'):
             return True
-
-    # 3. Basic Browser Headers check
-        # Mode: 'navigate' for page loads, 'cors' or 'no-cors' for others
-        if not req.headers.get('Sec-Fetch-Dest') or not req.headers.get('Sec-Fetch-Mode'):
-            return True
-        
-        # Sec-Fetch-Site should usually be 'same-origin' or 'same-site' for internal POSTs
-        site = req.headers.get('Sec-Fetch-Site')
-        if site not in ['same-origin', 'same-site']:
-            # Exception for some external auth? No, this app uses internal login/register.
-            return True
-
-        # Sec-Ch-Ua consistency
-        if 'chrome' in ua and not req.headers.get('Sec-Ch-Ua'):
-            return True
-
-        # 4. Referer Check
-        referer = req.headers.get('Referer')
-        if not referer:
-            return True
-        if not (req.host in referer):
-            return True
-            
-    # 5. Suspicious Connection Header
-    # Browsers usually send 'keep-alive' or similar, not 'close' by default in initial requests
-    if req.headers.get('Connection', '').lower() == 'close' and req.method == 'POST':
-        return True
 
     return False
 
@@ -413,23 +385,15 @@ def login():
         load_time = session.pop('_form_load_time', 0)
         user = User.query.filter_by(username=request.form.get('username')).first()
         
-        if time.time() - load_time < 1.0:
-            if user:
-                user.is_locked = True
-                db.session.commit()
+        if time.time() - load_time < 0.5:
             return "Access Denied: Unnatural submission speed.", 403
 
         username = request.form.get('username')
         password = request.form.get('password')
         
-        # Check for atypical client first to potential lock account
+        # 不審なクライアントチェック (ここでは拒否するが永続ロックはしない)
         if is_atypical_client(request):
-            if user:
-                user.is_locked = True
-                db.session.commit()
-                flash('不審なクライアントからのアクセスが検知されたため、アカウントを一時的にロックしました。解除が必要な場合は下記から申請してください。')
-            else:
-                flash('アクセスが拒否されました。')
+            flash('不審なクライアントからのアクセスが検知されました。ブラウザの設定を確認してください。')
             return redirect(url_for('login'))
 
         if user:
@@ -487,10 +451,8 @@ def settings():
     if request.method == 'POST':
         # 設定変更時のセキュリティチェック
         if is_atypical_client(request):
-            current_user.is_locked = True
-            db.session.commit()
             logout_user()
-            flash('不審な操作が検知されました。')
+            flash('不審な操作が検知されました。再度ログインしてください。')
             return redirect(url_for('login'))
 
         api_key = request.form.get('api_key')
