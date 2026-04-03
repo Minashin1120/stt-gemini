@@ -7,6 +7,9 @@
         
         <form method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div style="display:none;" aria-hidden="true">
+                <input type="text" name="_honey_field" tabindex="-1" autocomplete="off">
+            </div>
             <div class="mb-3">
                 <label>ユーザー名</label>
                 <input type="text" name="username" class="form-control" placeholder="解除を希望するユーザー名" required>
