@@ -142,8 +142,9 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="d-flex justify-content-center gap-2 mb-2">
-                            <button id="btnTranscribe" class="btn btn-primary btn-lg rounded-pill px-5 shadow-sm" disabled><i class="bi bi-send-fill me-2"></i> 送信して文字起こし</button>
+                        <div class="d-flex justify-content-center flex-wrap gap-2 mb-2">
+                            <button id="btnUploadNew" class="btn btn-primary btn-lg rounded-pill px-4 shadow-sm" disabled><i class="bi bi-send-fill me-1"></i> 新規</button>
+                            <button id="btnUploadAppend" class="btn btn-outline-primary btn-lg rounded-pill px-4 shadow-sm" disabled><i class="bi bi-plus-circle me-1"></i> 追加</button>
                         </div>
                     </div>
                 </div>
@@ -417,7 +418,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const fileNameEl = document.getElementById('selectedFileName');
     const fileSizeEl = document.getElementById('selectedFileSize');
     const removeFileBtn = document.getElementById('btnRemoveFile');
-    const btnTranscribe = document.getElementById('btnTranscribe');
+    const btnUploadNew = document.getElementById('btnUploadNew');
+    const btnUploadAppend = document.getElementById('btnUploadAppend');
 
     const bsDelModal = new bootstrap.Modal(document.getElementById('deleteModal'));
     const thoughtCol = new bootstrap.Collapse(document.getElementById('collapseThinking'), {toggle:false});
@@ -463,7 +465,8 @@ document.addEventListener('DOMContentLoaded', () => {
         fileNameEl.innerText = file.name;
         fileSizeEl.innerText = (file.size / (1024 * 1024)).toFixed(2) + " MB";
         fileInfo.classList.remove('d-none');
-        btnTranscribe.disabled = false;
+        btnUploadNew.disabled = false;
+        btnUploadAppend.disabled = false;
         el.stat.innerText = "ファイルが選択されました";
     }
 
@@ -483,7 +486,8 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedFile = null;
         fileInput.value = "";
         fileInfo.classList.add('d-none');
-        btnTranscribe.disabled = true;
+        btnUploadNew.disabled = true;
+        btnUploadAppend.disabled = true;
         el.stat.innerText = "準備完了";
     };
 
@@ -646,11 +650,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    btnTranscribe.onclick = async () => {
+    btnUploadNew.onclick = () => uploadFile(false);
+    btnUploadAppend.onclick = () => uploadFile(true);
+
+    async function uploadFile(append = false) {
         if (!selectedFile) return;
-        isAppendMode=false;
+        isAppendMode = append;
         el.stat.innerText = "アップロード中...";
-        btnTranscribe.disabled = true;
+        btnUploadNew.disabled = btnUploadAppend.disabled = true;
         const fd = new FormData();
         fd.append('audio_file', selectedFile);
         fd.append('thinking_level', el.think.value);
@@ -667,9 +674,9 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast("通信エラー", true);
             el.stat.innerText = "通信エラー";
         } finally {
-            btnTranscribe.disabled = false;
+            btnUploadNew.disabled = btnUploadAppend.disabled = false;
         }
-    };
+    }
 
     async function rec(append=false) {
         isAppendMode=append; if(!append){el.tho.innerText="";el.res.value="";initText="";}
