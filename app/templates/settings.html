@@ -13,7 +13,12 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
                 <label>Gemini API キー</label>
-                <input type="password" name="api_key" class="form-control" placeholder="AIzaSy...">
+                <div class="input-group">
+                    <input type="password" name="api_key" id="apiKeyInput" class="form-control" placeholder="AIzaSy..." value="{{ api_key }}">
+                    <button type="button" id="copyApiKeyBtn" class="btn btn-outline-secondary" {% if not has_key %}disabled{% endif %} title="APIキーをコピー">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                </div>
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold">履歴・データの保持時間 (分)</label>
@@ -59,14 +64,42 @@
     </div>
 </div>
 
+<div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 2000">
+    <div id="liveToast" class="toast align-items-center text-white bg-dark border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body" id="toastMessage"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
 <script>
+    function showToast(m, e=false) {
+        const msgEl = document.getElementById('toastMessage');
+        const toastEl = document.getElementById('liveToast');
+        if (msgEl && toastEl) {
+            msgEl.innerText = m;
+            toastEl.classList.toggle('bg-danger', e);
+            bootstrap.Toast.getOrCreateInstance(toastEl).show();
+        }
+    }
     document.addEventListener('DOMContentLoaded', () => {
         const themeSelect = document.getElementById('themeSelect');
         const saveBtn = document.getElementById('saveThemeBtn');
         const deleteBtn = document.getElementById('deleteAccountBtn');
+        const copyBtn = document.getElementById('copyApiKeyBtn');
+        const apiKeyInput = document.getElementById('apiKeyInput');
 
         // ... (既存のテーマ処理)
         
+        if (copyBtn && apiKeyInput) {
+            copyBtn.addEventListener('click', () => {
+                const key = apiKeyInput.value;
+                if (!key) return;
+                navigator.clipboard.writeText(key).then(() => showToast('APIキーをコピーしました'));
+            });
+        }
+
         deleteBtn.addEventListener('click', async () => {
             if (confirm('本当にアカウントを削除しますか？\nこの操作は取り消せず、すべてのデータが失われます。')) {
                 try {
