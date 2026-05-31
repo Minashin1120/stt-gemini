@@ -526,7 +526,8 @@ def settings():
                 flash('保存期間には数値を入力してください。')
         
         db.session.commit()
-    return render_template('settings.html', has_key=current_user.encrypted_api_key is not None)
+    api_key_value = current_user.get_api_key() or ''
+    return render_template('settings.html', has_key=current_user.encrypted_api_key is not None, api_key=api_key_value)
 
 @app.route('/api/delete_account', methods=['POST'])
 @login_required
