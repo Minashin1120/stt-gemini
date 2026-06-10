@@ -43,3 +43,8 @@ test.mp3
 .DS_Store
 Thumbs.db
 .ssh/
+
+# Editor / opencode
+.opencode/
+opencode.sh
+.config/

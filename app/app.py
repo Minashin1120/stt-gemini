@@ -642,37 +642,51 @@ def stream_gemini_and_save(api_key, payload, user_id, action_type, input_summary
     full_text = ""
     had_error = False
     
-    try:
-        response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload, stream=True, timeout=(10, None))
-        
-        if response.status_code != 200:
-            had_error = True
-            yield f"data: {json.dumps({'type': 'error', 'content': f'API Error {response.status_code}'})}\n\n"
-            return
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload, stream=True, timeout=(10, None))
+            
+            if response.status_code == 429 and attempt < max_retries:
+                yield f"data: {json.dumps({'type': 'info', 'content': f'API制限中({retry_delay}秒後に再試行...)'})}\n\n"
+                time.sleep(retry_delay)
+                retry_delay *= 2
+                continue
+            
+            if response.status_code != 200:
+                had_error = True
+                if response.status_code == 429:
+                    yield f"data: {json.dumps({'type': 'error', 'content': 'API Error 429: リクエスト制限に達しました。時間をおいて再度お試しください。'})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': 'error', 'content': f'API Error {response.status_code}'})}\n\n"
+                return
 
-        for line in response.iter_lines():
-            if line:
-                decoded = line.decode('utf-8')
-                if decoded.startswith('data: '):
-                    try:
-                        data = json.loads(decoded[6:])
-                        parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
-                        for p in parts:
-                            if p.get('thought'): # Gemini 3.0 thought field
-                                content = p.get('text', '')
-                                if not content:
-                                    continue
-                                full_thought += content
-                                yield f"data: {json.dumps({'type': 'thought', 'content': content})}\n\n"
-                            elif 'text' in p:
-                                content = p['text']
-                                full_text += content
-                                yield f"data: {json.dumps({'type': 'text', 'content': content})}\n\n"
-                    except: pass
-    except Exception as e:
-        had_error = True
-        yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-        return
+            for line in response.iter_lines():
+                if line:
+                    decoded = line.decode('utf-8')
+                    if decoded.startswith('data: '):
+                        try:
+                            data = json.loads(decoded[6:])
+                            parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
+                            for p in parts:
+                                if p.get('thought'): # Gemini 3.0 thought field
+                                    content = p.get('text', '')
+                                    if not content:
+                                        continue
+                                    full_thought += content
+                                    yield f"data: {json.dumps({'type': 'thought', 'content': content})}\n\n"
+                                elif 'text' in p:
+                                    content = p['text']
+                                    full_text += content
+                                    yield f"data: {json.dumps({'type': 'text', 'content': content})}\n\n"
+                        except: pass
+            break
+        except Exception as e:
+            had_error = True
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            return
     
     if had_error:
         return
