@@ -44,3 +44,8 @@ test.mp3
 Thumbs.db
 引き継ぎ資料.txt
 .ssh/
+
+# Editor / opencode
+.opencode/
+opencode.sh
+.config/
