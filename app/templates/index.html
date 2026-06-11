@@ -684,6 +684,12 @@ document.addEventListener('DOMContentLoaded', () => {
             el.copy.disabled=el.re.disabled=el.delBtn.disabled=false;
             showToast("完了");
             loadHistory();
+            // Flash-Lite は LOW/MEDIUM で thought を返さないのでヒント表示
+            const _mdl = getModel();
+            const _lvl = el.think.value;
+            if (_mdl === 'gemini-3.1-flash-lite' && (_lvl === 'LOW' || _lvl === 'MEDIUM') && !el.tho.innerText.trim()) {
+                el.tho.innerText = '[Flash-Lite は LOW/MEDIUM 設定時に思考プロセスを返しません。表示するには HIGH を選択してください。]';
+            }
         }
     }
 
