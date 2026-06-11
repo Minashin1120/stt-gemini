@@ -153,6 +153,15 @@
 
                 <div class="row mb-3 justify-content-center">
                     <div class="col-md-6 text-start">
+                        <label class="form-label small fw-bold mb-1 text-muted"><i class="bi bi-cpu"></i> モデル</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash3" value="gemini-3-flash-preview" checked>
+                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash3">3.0 Flash</label>
+                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash31lite" value="gemini-3.1-flash-lite">
+                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash31lite">3.1 Flash-Lite</label>
+                        </div>
+                    </div>
+                    <div class="col-md-6 text-start">
                         <label class="form-label small fw-bold mb-1 text-muted"><i class="bi bi-cpu"></i> 推論レベル</label>
                         <select id="thinking_level" class="form-select form-select-sm">
                             <option value="MINIMAL">Minimal (速い・思考プロセス非表示)</option>
@@ -447,21 +456,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    function getModel() {
+        const checked = document.querySelector('input[name="model_select"]:checked');
+        return checked ? checked.value : 'gemini-3-flash-preview';
+    }
     function saveSet(){ 
         localStorage.setItem('stt_t', el.think.value);
         if(el.noise) localStorage.setItem('stt_n', el.noise.checked);
         const fmt = document.querySelector('input[name="format"]:checked');
         if(fmt) localStorage.setItem('stt_f', fmt.value);
+        localStorage.setItem('stt_m', getModel());
     }
     
-    const t=localStorage.getItem('stt_t'), n=localStorage.getItem('stt_n'), f=localStorage.getItem('stt_f');
+    const t=localStorage.getItem('stt_t'), n=localStorage.getItem('stt_n'), f=localStorage.getItem('stt_f'), m=localStorage.getItem('stt_m');
     if(t) el.think.value=t;
     if(n!==null && el.noise) el.noise.checked=(n==='true');
     if(f) { const r = document.querySelector(`input[name="format"][value="${f}"]`); if(r) r.checked=true; }
+    if(m) { const r = document.querySelector(`input[name="model_select"][value="${m}"]`); if(r) r.checked=true; }
     
     el.think.addEventListener('change', saveSet);
     if(el.noise) el.noise.addEventListener('change', saveSet);
     document.querySelectorAll('input[name="format"]').forEach(r=>r.addEventListener('change', saveSet));
+    document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', saveSet));
     
     loadHistory(); 
     loadWordSetStatus();
@@ -683,6 +699,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fd = new FormData();
         fd.append('audio_file', selectedFile);
         fd.append('thinking_level', el.think.value);
+        fd.append('model', getModel());
         try {
             const r = await csrfFetch('/transcribe', { 
                 method: 'POST', 
@@ -795,7 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function upl(b,n){
         abortController = new AbortController();
-        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value);
+        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', getModel());
         try{
             const r=await csrfFetch('/transcribe',{
                 method:'POST',
@@ -819,7 +836,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try{ const r=await csrfFetch('/reanalyze',{
             method:'POST',
             headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({thinking_level:el.think.value}),
+            body:JSON.stringify({thinking_level:el.think.value,model:getModel()}),
             signal: abortController.signal
         });
         if(!r.ok){ showToast("エラー",true); return; } await handleStreamResponse(r); }catch(e){ if(e.name!=='AbortError') showToast("失敗",true); }
@@ -833,7 +850,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const r=await csrfFetch('/improve',{
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({text:t,instruction:i,thinking_level:el.think.value,use_audio:el.useAudio.checked}),
+                body:JSON.stringify({text:t,instruction:i,thinking_level:el.think.value,model:getModel(),use_audio:el.useAudio.checked}),
                 signal: abortController.signal
             });
             if(!r.ok){
