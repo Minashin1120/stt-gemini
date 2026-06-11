@@ -636,6 +636,14 @@ def delete_word(word_id):
 
 # --- Streaming Generator with History Saving ---
 def stream_gemini_and_save(api_key, payload, user_id, action_type, input_summary, model="gemini-3-flash-preview"):
+    # gemini-3.1-flash-lite は LOW/MEDIUM で thought を返さないため、
+    # ユーザーが期待する thought 表示を得られるようレベルを自動調整する
+    if model == "gemini-3.1-flash-lite":
+        tc = payload.get("generationConfig", {}).get("thinkingConfig", {})
+        level = tc.get("thinkingLevel", "").upper() if tc else ""
+        if level in ("LOW", "MEDIUM"):
+            payload.setdefault("generationConfig", {}).setdefault("thinkingConfig", {})["thinkingLevel"] = "HIGH"
+    
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
     
     full_thought = ""
