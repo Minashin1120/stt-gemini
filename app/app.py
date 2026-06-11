@@ -635,8 +635,8 @@ def delete_word(word_id):
     return jsonify({'error': 'Not found'}), 404
 
 # --- Streaming Generator with History Saving ---
-def stream_gemini_and_save(api_key, payload, user_id, action_type, input_summary):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key={api_key}"
+def stream_gemini_and_save(api_key, payload, user_id, action_type, input_summary, model="gemini-3-flash-preview"):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
     
     full_thought = ""
     full_text = ""
@@ -750,7 +750,9 @@ def transcribe():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": request.form.get('thinking_level', 'LOW').upper()}}
     }
     
-    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "transcribe", "Audio Input"))
+    model = request.form.get('model', 'gemini-3-flash-preview')
+    
+    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "transcribe", "Audio Input", model=model))
 
 @app.route('/reanalyze', methods=['POST'])
 @login_required
@@ -782,7 +784,8 @@ def reanalyze():
         ]}],
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
     }
-    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "reanalyze", "Re-analysis Request"))
+    model = data.get('model', 'gemini-3-flash-preview')
+    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "reanalyze", "Re-analysis Request", model=model))
 
 @app.route('/improve', methods=['POST'])
 @login_required
@@ -831,7 +834,8 @@ def improve():
         "contents": [{"parts": parts}],
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
     }
-    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "improve", instruction))
+    model = data.get('model', 'gemini-3-flash-preview')
+    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "improve", instruction, model=model))
 
 # --- File & History APIs ---
 @app.route('/delete_audio', methods=['POST'])
