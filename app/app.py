@@ -712,6 +712,25 @@ STRICT INSTRUCTION:
 4. Do NOT insert line breaks in the middle of a sentence, even if there is a pause in the speech. Only use line breaks at the end of a complete sentence or when the speaker/topic changes significantly.
 """
 
+REPHRASE_AWARE_INSTRUCTION = """
+STRICT INSTRUCTION WITH REPHRASE CORRECTION:
+1. When the speaker starts a phrase, then immediately corrects it, treat the corrected wording as the final text.
+2. Omit abandoned false starts and mistaken fragments that were clearly superseded by the correction.
+3. Still transcribe ordinary speech verbatim when there is no self-correction.
+4. Do NOT add explanations or notes. Output ONLY the final text.
+"""
+
+def is_truthy(value):
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+def build_transcription_prompt(history_context, word_list_context, mode_label, allow_rephrase_correction=False):
+    prompt = f"{history_context}\n{word_list_context}\n"
+    if allow_rephrase_correction:
+        prompt += f"MODE: {mode_label}\nTASK: {REPHRASE_AWARE_INSTRUCTION}"
+    else:
+        prompt += f"TASK: {VERBATIM_INSTRUCTION}"
+    return prompt
+
 @app.route('/transcribe', methods=['POST'])
 @login_required
 def transcribe():
@@ -740,7 +759,13 @@ def transcribe():
     history_context = get_active_history_context(current_user.id)
     word_list_context = get_word_list_context(current_user.id)
     
-    full_prompt = f"{history_context}\n{word_list_context}\nTASK: {VERBATIM_INSTRUCTION}"
+    allow_rephrase_correction = is_truthy(request.form.get('allow_rephrase_correction'))
+    full_prompt = build_transcription_prompt(
+        history_context,
+        word_list_context,
+        "The user enabled rephrase correction mode for this transcription.",
+        allow_rephrase_correction=allow_rephrase_correction,
+    )
     
     payload = {
         "contents": [{"parts": [
@@ -762,6 +787,7 @@ def reanalyze():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     if not os.path.exists(filepath): return jsonify({'error': '期限切れ'}), 400
     data = request.get_json(silent=True) or {}
+    allow_rephrase_correction = is_truthy(data.get('allow_rephrase_correction'))
     
     with open(filepath, "rb") as f:
         audio_b64 = base64.b64encode(f.read()).decode('utf-8')
@@ -776,6 +802,14 @@ def reanalyze():
     TASK: Listen again carefully and transcribe exactly.
     Do NOT insert line breaks in the middle of a sentence, even if there is a pause in the speech.
     """
+    if allow_rephrase_correction:
+        prompt = f"""
+        {history_context}
+        {word_list_context}
+        
+        MODE: The user enabled rephrase correction mode for this re-analysis.
+        TASK: {REPHRASE_AWARE_INSTRUCTION}
+        """
     
     payload = {
         "contents": [{"parts": [
