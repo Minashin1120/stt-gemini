@@ -196,7 +196,7 @@
                     <button id="btnOpenDel" class="btn btn-outline-danger btn-sm" disabled data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash"></i></button>
                 </div>
             </div>
-            <div class="card-body p-0"><textarea id="resultText" class="form-control border-0" rows="10" placeholder="..." style="resize:none;"></textarea></div>
+            <div class="card-body p-0 position-relative"><div id="processingBar" class="processing-bar-container d-none"><div class="processing-bar"></div></div><textarea id="resultText" class="form-control border-0" rows="10" placeholder="..." style="resize:none;"></textarea></div>
         </div>
 
         <div class="card shadow-sm border-info mb-5">
@@ -455,7 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
         recNew: document.getElementById('btnRecordNew'), recAdd: document.getElementById('btnRecordAppend'),
         pause: document.getElementById('btnPause'), stop: document.getElementById('btnStop'), cancel: document.getElementById('btnCancel'),
         copy: document.getElementById('btnCopy'), imp: document.getElementById('btnImprove'), stat: document.getElementById('status'),
-        res: document.getElementById('resultText'), tho: document.getElementById('thoughtText'),
+        res: document.getElementById('resultText'), tho: document.getElementById('thoughtText'), procBar: document.getElementById('processingBar'),
         ins: document.getElementById('instructionInput'), think: document.getElementById('thinking_level'),
         noise: document.getElementById('noiseSuppression'), rephrase: document.getElementById('allowRephraseCorrection'), useAudio: document.getElementById('useAudioForImprove'),
         re: document.getElementById('btnReanalyze'), delBtn: document.getElementById('btnOpenDel'),
@@ -645,7 +645,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let sseBuffer = "";
     async function handleStreamResponse(r) {
         const reader=r.body.getReader(), dec=new TextDecoder();
-        el.tho.innerText=""; 
+        el.tho.innerText="";
+        if (el.procBar) el.procBar.classList.remove('d-none');
         let streamHadError = false;
         let isAborted = false;
 
@@ -690,6 +691,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         finally {
+            if (el.procBar) el.procBar.classList.add('d-none');
             el.abort.classList.add('d-none');
             if (isAborted) return;
             if (streamHadError) {
