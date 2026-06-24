@@ -42,6 +42,30 @@
 }
 
 /* =========================================
+   処理中プログレスバー
+   ========================================= */
+.processing-bar-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    z-index: 10;
+    overflow: hidden;
+}
+.processing-bar {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent 0%, var(--primary-color) 50%, transparent 100%);
+    background-size: 200% 100%;
+    animation: processingShimmer 1.2s ease-in-out infinite;
+}
+@keyframes processingShimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+/* =========================================
    テーマ設定
    ========================================= */
 
