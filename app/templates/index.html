@@ -23,7 +23,7 @@
     .history-meta { font-size: 0.75em; color: gray; display: flex; justify-content: space-between; }
     .history-thought { font-size: 0.8em; color: #666; border-left: 2px solid #ccc; padding-left: 8px; margin: 5px 0; max-height: 60px; overflow: hidden; cursor: pointer; }
     .history-thought.expanded { max-height: none; }
-    .cursor-pointer { pointer: pointer; }
+    .cursor-pointer { cursor: pointer; }
 </style>
 
 <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 2000">
@@ -539,13 +539,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- History Functions ---
+    const historyData = {};
     async function loadHistory() {
         try {
             const r = await csrfFetch('/api/history');
             const data = await r.json();
             if(data.length === 0) { el.hist.innerHTML = '<div class="text-center text-muted small py-3">履歴なし</div>'; return; }
             
-            el.hist.innerHTML = data.map(h => `
+            el.hist.innerHTML = data.map(h => {
+                historyData[h.id] = h;
+                return `
                 <div class="history-item ${h.expired ? 'expired' : ''}">
                     <div class="history-meta">
                         <span>${escapeHtml(h.action.toUpperCase())}</span>
@@ -557,10 +560,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${h.input ? `<div class="small fw-bold text-truncate">${escapeHtml(h.input)}</div>` : ''}
                     ${h.thought ? `<div class="history-thought" onclick="this.classList.toggle('expanded')" title="クリックで展開">${escapeHtml(h.thought.substring(0,50))}${h.thought.length > 50 ? '...' : ''}</div>` : ''}
                     <div class="small mt-1" style="white-space:pre-wrap;">${h.result ? `${escapeHtml(h.result.substring(0, 100))}${h.result.length>100?'...':''}` : '(結果なし)'}</div>
+                    <div class="mt-1 text-end">
+                        <i class="bi bi-clipboard cursor-pointer text-primary" onclick="copyHistoryText(${h.id})" title="テキストをコピー"></i>
+                    </div>
                 </div>
-            `).join('');
+            }).join('');
         } catch(e){}
     }
+
+    window.copyHistoryText = async (id) => {
+        const h = historyData[id];
+        if (!h) return;
+        let text = '';
+        if (h.input) text += `【入力】${h.input}\n`;
+        if (h.thought) text += `【思考】${h.thought}\n`;
+        if (h.result) text += `【結果】${h.result}`;
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast("コピーしました");
+        } catch (e) {
+            showToast("コピーに失敗しました", true);
+        }
+    };
 
     window.deleteHistoryItem = async (id) => {
         if(!confirm('この履歴を削除しますか？')) return;
