@@ -546,11 +546,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if(data.length === 0) { el.hist.innerHTML = '<div class="text-center text-muted small py-3">履歴なし</div>'; return; }
             
             el.hist.innerHTML = data.map(h => `
-                <div class="history-item ${h.expired ? 'expired' : ''}">
+                <div class="history-item ${h.expired ? 'expired' : ''}" data-full-result="${btoa(unescape(encodeURIComponent(h.result || '')))}">
                     <div class="history-meta">
                         <span>${escapeHtml(h.action.toUpperCase())}</span>
                         <div>
                             <span class="me-2">${escapeHtml(h.time)}</span>
+                            <i class="bi bi-clipboard text-primary cursor-pointer me-1" onclick="copyHistoryText(this)" title="コピー"></i>
                             <i class="bi bi-trash text-danger cursor-pointer" onclick="deleteHistoryItem(${h.id})" title="削除"></i>
                         </div>
                     </div>
@@ -568,6 +569,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const r = await csrfFetch(`/api/delete_history/${id}`, {method:'POST'});
             if(r.ok) { showToast("履歴を削除しました"); loadHistory(); }
         } catch(e){ showToast("削除失敗", true); }
+    };
+
+    window.copyHistoryText = (el) => {
+        const raw = el.closest('.history-item').dataset.fullResult;
+        if(!raw) return;
+        const text = decodeURIComponent(escape(atob(raw)));
+        navigator.clipboard.writeText(text).then(() => showToast("コピーしました")).catch(() => showToast("コピー失敗", true));
     };
 
     el.reset.onclick = async () => {
