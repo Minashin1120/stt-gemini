@@ -599,11 +599,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const c = document.getElementById('fileListContainer'); c.innerHTML = 'Loading...';
         try {
             const r = await csrfFetch('/api/files'); const files = await r.json();
-            c.innerHTML = files.length ? files.map(f => `
-                <div class="list-group-item d-flex justify-content-between align-items-center p-2">
-                    <div class="flex-grow-1 me-2"><div class="small fw-bold">${escapeHtml(f.display_name)}</div><audio controls src="${escapeHtml(f.url)}" style="height:25px;width:100%"></audio></div>
+            c.innerHTML = files.length ? files.map(f => {
+                const sizeMB = (f.size / (1024*1024)).toFixed(2);
+                const isLarge = f.size > CHUNK_THRESHOLD;
+                const playerHtml = isLarge
+                    ? `<div class="d-flex gap-2"><span class="small text-muted">${sizeMB} MB</span><button class="btn btn-sm btn-outline-primary download-file-btn py-0" data-url="${escapeHtml(f.url)}" data-filename="${escapeHtml(f.filename)}" data-size="${f.size}"><i class="bi bi-download me-1"></i>並列DL</button></div>`
+                    : `<audio controls src="${escapeHtml(f.url)}" style="height:25px;width:100%"></audio><span class="small text-muted ms-1">${sizeMB} MB</span>`;
+                return `<div class="list-group-item d-flex justify-content-between align-items-center p-2">
+                    <div class="flex-grow-1 me-2"><div class="small fw-bold">${escapeHtml(f.display_name)}</div>${playerHtml}</div>
                     <button class="btn btn-outline-danger btn-sm delete-file-btn" data-filename="${escapeHtml(f.filename)}"><i class="bi bi-trash"></i></button>
-                </div>`).join('') : '<div class="text-center py-2 text-muted">保存された音声はありません</div>';
+                </div>`;
+            }).join('') : '<div class="text-center py-2 text-muted">保存された音声はありません</div>';
         } catch(e){ c.innerHTML='エラー'; }
     };
 
@@ -614,10 +620,53 @@ document.addEventListener('DOMContentLoaded', () => {
             if(r.ok) { showToast("ファイルを削除しました"); loadFileMetadata(); }
         } catch(e){ showToast("削除失敗", true); }
     };
+    async function parallelDownload(url, filename, fileSize) {
+        const DL_CHUNK = 10 * 1024 * 1024; // 10MB per download chunk
+        const totalChunks = Math.ceil(fileSize / DL_CHUNK);
+        const CONCURRENCY = 4;
+        showToast(`並列ダウンロード開始 (${totalChunks}分割)...`);
+
+        async function dlChunk(start, end) {
+            const r = await fetch(url, { headers: { 'Range': `bytes=${start}-${end}` } });
+            if (!r.ok) throw new Error('Download failed');
+            return r.blob();
+        }
+
+        try {
+            const chunks = [];
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * DL_CHUNK;
+                const end = Math.min(start + DL_CHUNK - 1, fileSize - 1);
+                chunks.push({ start, end });
+            }
+
+            const blobChunks = [];
+            for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+                const batch = chunks.slice(i, i + CONCURRENCY);
+                const results = await Promise.all(batch.map(c => dlChunk(c.start, c.end)));
+                blobChunks.push(...results);
+            }
+
+            const blob = new Blob(blobChunks);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            showToast("ダウンロード完了");
+        } catch(e) {
+            showToast("ダウンロード失敗", true);
+        }
+    }
+
     document.getElementById('fileListContainer').addEventListener('click', (e) => {
         const btn = e.target.closest('.delete-file-btn');
         if (btn) {
             deleteFileItem(btn.dataset.filename);
+        }
+        const dlBtn = e.target.closest('.download-file-btn');
+        if (dlBtn) {
+            parallelDownload(dlBtn.dataset.url, dlBtn.dataset.filename, parseInt(dlBtn.dataset.size));
         }
     });
 
@@ -725,14 +774,25 @@ document.addEventListener('DOMContentLoaded', () => {
     btnUploadNew.onclick = () => uploadFile(false);
     btnUploadAppend.onclick = () => uploadFile(true);
 
+    const CHUNK_THRESHOLD = 100 * 1024 * 1024; // 100MB
+    const CHUNK_SIZE = 5 * 1024 * 1024;       // 5MB chunks for upload
+
     async function uploadFile(append = false) {
         if (!selectedFile) return;
+        if (selectedFile.size > CHUNK_THRESHOLD) {
+            await uploadFileChunked(selectedFile, append);
+        } else {
+            await uploadFileSingle(selectedFile, append);
+        }
+    }
+
+    async function uploadFileSingle(file, append) {
         isAppendMode = append;
         el.stat.innerText = "アップロード中...";
         btnUploadNew.disabled = btnUploadAppend.disabled = true;
         abortController = new AbortController();
         const fd = new FormData();
-        fd.append('audio_file', selectedFile);
+        fd.append('audio_file', file);
         fd.append('thinking_level', el.think.value);
         fd.append('model', getModel());
         fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0');
@@ -744,6 +804,77 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (!r.ok) {
                 const err = await r.json();
+                showToast(err.error || "エラーが発生しました", true);
+                el.stat.innerText = "エラー";
+                return;
+            }
+            await handleStreamResponse(r);
+        } catch (e) {
+            if (e.name === 'AbortError') return;
+            showToast("通信エラー", true);
+            el.stat.innerText = "通信エラー";
+        } finally {
+            btnUploadNew.disabled = btnUploadAppend.disabled = false;
+        }
+    }
+
+    async function uploadFileChunked(file, append) {
+        isAppendMode = append;
+        btnUploadNew.disabled = btnUploadAppend.disabled = true;
+        abortController = new AbortController();
+
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const uploadId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+        el.stat.innerText = `アップロード中 (0/${totalChunks})...`;
+
+        const tasks = [];
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunk = file.slice(start, end);
+            const fd = new FormData();
+            fd.append('upload_id', uploadId);
+            fd.append('chunk_index', i);
+            fd.append('total_chunks', totalChunks);
+            fd.append('original_filename', file.name);
+            fd.append('chunk', chunk, `chunk_${i}`);
+            tasks.push(fd);
+        }
+
+        const CONCURRENCY = 4;
+        let completedChunks = 0;
+
+        async function uploadOne(formData) {
+            const r = await csrfFetch('/api/upload_chunk', {
+                method: 'POST', body: formData, signal: abortController.signal
+            });
+            if (!r.ok) throw new Error('Chunk upload failed');
+            completedChunks++;
+            el.stat.innerText = `アップロード中 (${completedChunks}/${totalChunks})...`;
+        }
+
+        try {
+            for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+                const batch = tasks.slice(i, i + CONCURRENCY);
+                await Promise.all(batch.map(uploadOne));
+                if (abortController.signal.aborted) return;
+            }
+
+            el.stat.innerText = "解析中...";
+            const fd = new FormData();
+            fd.append('upload_id', uploadId);
+            fd.append('total_chunks', totalChunks);
+            fd.append('original_filename', file.name);
+            fd.append('thinking_level', el.think.value);
+            fd.append('model', getModel());
+            fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0');
+
+            const r = await csrfFetch('/api/upload_complete', {
+                method: 'POST', body: fd, signal: abortController.signal
+            });
+            if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
                 showToast(err.error || "エラーが発生しました", true);
                 el.stat.innerText = "エラー";
                 return;

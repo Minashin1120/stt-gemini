@@ -25,7 +25,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI')
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MBまで単一アップロード、超えると分割
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
 
 db = SQLAlchemy(app)
@@ -132,6 +132,7 @@ def load_user(user_id):
 
 # --- Helpers ---
 import subprocess
+import shutil
 from email.mime.text import MIMEText
 
 def verify_turnstile(token):
@@ -237,6 +238,17 @@ def cleanup_old_data():
                                     print(f"File removal error: {file_err}")
                 
                 db.session.commit()
+                
+                # Clean up stale chunk directories (>1 hour old)
+                chunks_root = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks')
+                if os.path.exists(chunks_root):
+                    for d in os.listdir(chunks_root):
+                        d_path = os.path.join(chunks_root, d)
+                        try:
+                            if os.path.isdir(d_path) and os.stat(d_path).st_mtime < now_ts - 3600:
+                                shutil.rmtree(d_path, ignore_errors=True)
+                        except Exception as chunk_err:
+                            print(f"Chunk cleanup error: {chunk_err}")
         except Exception as e:
             print(f"Cleanup error: {e}")
             try: db.session.rollback()
@@ -906,7 +918,7 @@ def list_files():
                     try:
                         stats = os.stat(filepath)
                         dt = datetime.fromtimestamp(stats.st_mtime)
-                        files.append({'filename': f, 'display_name': dt.strftime('%Y/%m/%d %H:%M:%S'), 'url': url_for('uploaded_file', filename=f)})
+                        files.append({'filename': f, 'display_name': dt.strftime('%Y/%m/%d %H:%M:%S'), 'url': url_for('uploaded_file', filename=f), 'size': stats.st_size})
                     except Exception:
                         continue
         files.sort(key=lambda x: x['display_name'], reverse=True)
@@ -919,6 +931,100 @@ def uploaded_file(filename):
     p = resolve_user_upload_path(filename, current_user.id)
     if not p or not os.path.exists(p): return "Access denied", 403
     return send_from_directory(app.config['UPLOAD_FOLDER'], os.path.basename(p))
+
+@app.route('/api/upload_chunk', methods=['POST'])
+@login_required
+def upload_chunk():
+    upload_id = request.form.get('upload_id')
+    chunk_index = request.form.get('chunk_index')
+    total_chunks = request.form.get('total_chunks')
+    original_filename = request.form.get('original_filename')
+    chunk_file = request.files.get('chunk')
+
+    if not all([upload_id, chunk_index, total_chunks, chunk_file]):
+        return jsonify({'error': 'Missing fields'}), 400
+
+    chunks_dir = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', str(upload_id))
+    os.makedirs(chunks_dir, exist_ok=True)
+
+    chunk_path = os.path.join(chunks_dir, f'chunk_{int(chunk_index):06d}')
+    chunk_file.save(chunk_path)
+
+    return jsonify({'success': True, 'chunk_index': int(chunk_index)})
+
+@app.route('/api/upload_complete', methods=['POST'])
+@login_required
+def upload_complete():
+    api_key = current_user.get_api_key()
+    if not api_key:
+        return jsonify({'error': 'API Key not set'}), 400
+
+    upload_id = request.form.get('upload_id')
+    total_chunks = request.form.get('total_chunks')
+    original_filename = request.form.get('original_filename')
+
+    if not all([upload_id, total_chunks]):
+        return jsonify({'error': 'Missing fields'}), 400
+
+    total_chunks = int(total_chunks)
+    chunks_dir = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', str(upload_id))
+
+    # Verify all chunks present
+    for i in range(total_chunks):
+        chunk_path = os.path.join(chunks_dir, f'chunk_{i:06d}')
+        if not os.path.exists(chunk_path):
+            shutil.rmtree(chunks_dir, ignore_errors=True)
+            return jsonify({'error': f'Missing chunk {i}'}), 400
+
+    ext, mime_type = get_audio_metadata(original_filename or 'audio.mp3')
+    filename = f"user_{current_user.id}_{int(time.time())}{ext}"
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+    # Merge chunks
+    try:
+        with open(filepath, 'wb') as outfile:
+            for i in range(total_chunks):
+                chunk_path = os.path.join(chunks_dir, f'chunk_{i:06d}')
+                with open(chunk_path, 'rb') as infile:
+                    outfile.write(infile.read())
+    except Exception as e:
+        shutil.rmtree(chunks_dir, ignore_errors=True)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        return jsonify({'error': f'Merge failed: {str(e)}'}), 500
+
+    shutil.rmtree(chunks_dir, ignore_errors=True)
+
+    session['last_audio_file'] = filename
+    session['last_audio_mime'] = mime_type
+
+    with open(filepath, "rb") as f:
+        audio_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+    history_context = get_active_history_context(current_user.id)
+    word_list_context = get_word_list_context(current_user.id)
+
+    allow_rephrase_correction = is_truthy(request.form.get('allow_rephrase_correction'))
+    full_prompt = build_transcription_prompt(
+        history_context, word_list_context,
+        "The user enabled rephrase correction mode for this transcription.",
+        allow_rephrase_correction=allow_rephrase_correction,
+    )
+
+    payload = {
+        "contents": [{"parts": [
+            {"text": full_prompt},
+            {"inline_data": {"mime_type": mime_type, "data": audio_b64}}
+        ]}],
+        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": request.form.get('thinking_level', 'LOW').upper()}}
+    }
+
+    model = request.form.get('model', 'gemini-3.5-flash')
+
+    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "transcribe", "Audio Input", model=model))
 
 @app.route('/api/delete_file/<filename>', methods=['POST'])
 @login_required
