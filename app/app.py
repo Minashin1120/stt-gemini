@@ -811,15 +811,25 @@ STRICT INSTRUCTION WITH REPHRASE CORRECTION:
 4. Do NOT add explanations or notes. Output ONLY the final text.
 """
 
+FILLER_REMOVAL_RULE = """
+Additionally, remove filler words, hesitations, and filled pauses such as "えーと", "あー", "うー", "んー", "えっと", "あのー", "そのー", "まあ", "えー", "あっ", "あの", "その", "ええと", "あのう", "そのう", and similar non-lexical vocalizations from the transcription. Transcribe the remaining substantive speech naturally and coherently, minimizing any impact on the substantive content.
+"""
+
 def is_truthy(value):
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
-def build_transcription_prompt(history_context, word_list_context, mode_label, allow_rephrase_correction=False):
+def build_transcription_prompt(history_context, word_list_context, mode_label, allow_rephrase_correction=False, allow_filler_removal=False):
     prompt = f"{history_context}\n{word_list_context}\n"
     if allow_rephrase_correction:
-        prompt += f"MODE: {mode_label}\nTASK: {REPHRASE_AWARE_INSTRUCTION}"
+        base_instruction = REPHRASE_AWARE_INSTRUCTION
     else:
-        prompt += f"TASK: {VERBATIM_INSTRUCTION}"
+        base_instruction = VERBATIM_INSTRUCTION
+    if allow_filler_removal:
+        base_instruction += FILLER_REMOVAL_RULE
+    if allow_rephrase_correction:
+        prompt += f"MODE: {mode_label}\nTASK: {base_instruction}"
+    else:
+        prompt += f"TASK: {base_instruction}"
     return prompt
 
 @app.route('/transcribe', methods=['POST'])
@@ -851,11 +861,13 @@ def transcribe():
     word_list_context = get_word_list_context(current_user.id)
     
     allow_rephrase_correction = is_truthy(request.form.get('allow_rephrase_correction'))
+    allow_filler_removal = is_truthy(request.form.get('allow_filler_removal'))
     full_prompt = build_transcription_prompt(
         history_context,
         word_list_context,
         "The user enabled rephrase correction mode for this transcription.",
         allow_rephrase_correction=allow_rephrase_correction,
+        allow_filler_removal=allow_filler_removal,
     )
     
     payload = {
@@ -886,28 +898,26 @@ def reanalyze():
     if not os.path.exists(filepath): return jsonify({'error': '期限切れ'}), 400
     data = request.get_json(silent=True) or {}
     allow_rephrase_correction = is_truthy(data.get('allow_rephrase_correction'))
+    allow_filler_removal = is_truthy(data.get('allow_filler_removal'))
     
     with open(filepath, "rb") as f:
         audio_b64 = base64.b64encode(f.read()).decode('utf-8')
     
     history_context = get_active_history_context(current_user.id)
     word_list_context = get_word_list_context(current_user.id)
-    prompt = f"""
-    {history_context}
-    {word_list_context}
-    
-    CONTEXT: The user pressed 'Re-analyze'.
-    TASK: Listen again carefully and transcribe exactly.
-    Do NOT insert line breaks in the middle of a sentence, even if there is a pause in the speech.
-    """
     if allow_rephrase_correction:
-        prompt = f"""
-        {history_context}
-        {word_list_context}
-        
-        MODE: The user enabled rephrase correction mode for this re-analysis.
-        TASK: {REPHRASE_AWARE_INSTRUCTION}
-        """
+        base_instruction = REPHRASE_AWARE_INSTRUCTION
+        mode_line = "MODE: The user enabled rephrase correction mode for this re-analysis."
+    else:
+        base_instruction = "Listen again carefully and transcribe exactly.\nDo NOT insert line breaks in the middle of a sentence, even if there is a pause in the speech."
+        mode_line = ""
+    if allow_filler_removal:
+        base_instruction += FILLER_REMOVAL_RULE
+    prompt_parts = [history_context, word_list_context]
+    if mode_line:
+        prompt_parts.append(mode_line)
+    prompt_parts.append("TASK: " + base_instruction)
+    prompt = "\n".join(prompt_parts)
     
     payload = {
         "contents": [{"parts": [
@@ -1108,10 +1118,12 @@ def upload_complete():
     word_list_context = get_word_list_context(current_user.id)
 
     allow_rephrase_correction = is_truthy(request.form.get('allow_rephrase_correction'))
+    allow_filler_removal = is_truthy(request.form.get('allow_filler_removal'))
     full_prompt = build_transcription_prompt(
         history_context, word_list_context,
         "The user enabled rephrase correction mode for this transcription.",
         allow_rephrase_correction=allow_rephrase_correction,
+        allow_filler_removal=allow_filler_removal,
     )
 
     payload = {
