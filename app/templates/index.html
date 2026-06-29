@@ -500,6 +500,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     loadHistory(); 
     loadWordSetStatus();
+    checkRunningTasks();
 
     // --- File Upload UI Logic ---
     function handleFileSelect(file) {
@@ -561,6 +562,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `).join('');
         } catch(e){}
+    }
+
+    async function checkRunningTasks() {
+        try {
+            const r = await csrfFetch('/api/tasks');
+            const tasks = await r.json();
+            const runningTask = tasks.find(t => t.status === 'running');
+            if (runningTask) {
+                el.stat.innerText = "バックグラウンド処理を再開中...";
+                showToast("前回の処理が続行中です");
+                try {
+                    const streamR = await fetch(`/api/task_stream/${runningTask.id}`);
+                    if (streamR.ok) {
+                        await handleStreamResponse(streamR);
+                    }
+                } catch(e) {
+                    if (e.name !== 'AbortError') {
+                        showToast("再接続失敗", true);
+                    }
+                }
+            }
+            // completed tasks from Redis are already in History DB
+        } catch(e) {}
     }
 
     window.deleteHistoryItem = async (id) => {

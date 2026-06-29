@@ -5,6 +5,7 @@ import base64
 import time
 import threading
 import secrets
+import uuid
 import logging
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response, stream_with_context, session, send_from_directory
@@ -34,6 +35,48 @@ login_manager.init_app(app)
 login_manager.login_view = 'welcome'
 
 fernet = Fernet(os.getenv('ENCRYPTION_KEY').encode())
+
+# --- Redis Client ---
+import redis as redis_module
+redis_client = redis_module.Redis(host='127.0.0.1', port=6379, decode_responses=True)
+
+# --- Task Management (Redis-backed for crash recovery) ---
+TASK_TTL = 86400  # 24h
+
+def create_task(user_id, action_type, input_summary, model):
+    task_id = str(uuid.uuid4())
+    task_key = f"task:{task_id}"
+    now = time.time()
+    redis_client.hset(task_key, mapping={
+        'status': 'running',
+        'user_id': str(user_id),
+        'action_type': action_type,
+        'input_summary': input_summary or '',
+        'thought': '',
+        'result': '',
+        'model': model,
+        'created_at': now,
+        'updated_at': now,
+    })
+    redis_client.expire(task_key, TASK_TTL)
+    redis_client.sadd(f"user:{user_id}:tasks", task_id)
+    redis_client.expire(f"user:{user_id}:tasks", TASK_TTL)
+    return task_id
+
+def update_task(task_id, **kwargs):
+    kwargs['updated_at'] = time.time()
+    redis_client.hset(f"task:{task_id}", mapping=kwargs)
+
+def get_task(task_id):
+    return redis_client.hgetall(f"task:{task_id}")
+
+def delete_task(task_id):
+    task = get_task(task_id)
+    if task:
+        uid = task.get('user_id')
+        if uid:
+            redis_client.srem(f"user:{uid}:tasks", task_id)
+        redis_client.delete(f"task:{task_id}")
 
 CSRF_EXEMPT_ENDPOINTS = {
     'static',
@@ -646,68 +689,104 @@ def delete_word(word_id):
         return jsonify({'success': True})
     return jsonify({'error': 'Not found'}), 404
 
-# --- Streaming Generator with History Saving ---
-def stream_gemini_and_save(api_key, payload, user_id, action_type, input_summary, model="gemini-3.5-flash"):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
-    
-    full_thought = ""
-    full_text = ""
-    had_error = False
-    
-    max_retries = 3
-    retry_delay = 2
-    
-    for attempt in range(max_retries + 1):
-        try:
-            response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload, stream=True, timeout=(10, None))
-            
-            if response.status_code == 429 and attempt < max_retries:
-                yield f"data: {json.dumps({'type': 'info', 'content': f'API制限中({retry_delay}秒後に再試行...)'})}\n\n"
-                time.sleep(retry_delay)
-                retry_delay *= 2
-                continue
-            
-            if response.status_code != 200:
+# --- Background Task Processor (writes progress to Redis) ---
+def process_gemini_background(task_id, api_key, payload, user_id, action_type, input_summary, model="gemini-3.5-flash"):
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+        
+        full_thought = ""
+        full_text = ""
+        had_error = False
+        
+        max_retries = 3
+        retry_delay = 2
+        
+        for attempt in range(max_retries + 1):
+            try:
+                response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload, stream=True, timeout=(10, None))
+                
+                if response.status_code == 429 and attempt < max_retries:
+                    update_task(task_id, status='running')
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                
+                if response.status_code != 200:
+                    had_error = True
+                    if response.status_code == 429:
+                        update_task(task_id, status='error', error='API Error 429: リクエスト制限に達しました。時間をおいて再度お試しください。')
+                    else:
+                        update_task(task_id, status='error', error=f'API Error {response.status_code}')
+                    return
+
+                for line in response.iter_lines():
+                    if line:
+                        decoded = line.decode('utf-8')
+                        if decoded.startswith('data: '):
+                            try:
+                                data = json.loads(decoded[6:])
+                                parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
+                                for p in parts:
+                                    if p.get('thought'):
+                                        content = p.get('text', '')
+                                        if not content:
+                                            continue
+                                        full_thought += content
+                                        update_task(task_id, thought=full_thought, result=full_text)
+                                    elif 'text' in p:
+                                        content = p['text']
+                                        full_text += content
+                                        update_task(task_id, thought=full_thought, result=full_text)
+                            except:
+                                pass
+                break
+            except Exception as e:
                 had_error = True
-                if response.status_code == 429:
-                    yield f"data: {json.dumps({'type': 'error', 'content': 'API Error 429: リクエスト制限に達しました。時間をおいて再度お試しください。'})}\n\n"
-                else:
-                    yield f"data: {json.dumps({'type': 'error', 'content': f'API Error {response.status_code}'})}\n\n"
+                update_task(task_id, status='error', error=str(e))
                 return
-
-            for line in response.iter_lines():
-                if line:
-                    decoded = line.decode('utf-8')
-                    if decoded.startswith('data: '):
-                        try:
-                            data = json.loads(decoded[6:])
-                            parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
-                            for p in parts:
-                                if p.get('thought'): # Gemini 3.0 thought field
-                                    content = p.get('text', '')
-                                    if not content:
-                                        continue
-                                    full_thought += content
-                                    yield f"data: {json.dumps({'type': 'thought', 'content': content})}\n\n"
-                                elif 'text' in p:
-                                    content = p['text']
-                                    full_text += content
-                                    yield f"data: {json.dumps({'type': 'text', 'content': content})}\n\n"
-                        except: pass
-            break
-        except Exception as e:
-            had_error = True
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        
+        if had_error:
             return
-    
-    if had_error:
-        return
+        
+        save_history(user_id, action_type, input_summary, full_thought, full_text)
+        update_task(task_id, status='done', thought=full_thought, result=full_text)
+    except Exception as e:
+        update_task(task_id, status='error', error=str(e))
 
-    # 完了後、履歴に保存 (別スレッドで実行してレスポンスをブロックしない手もあるが、今回はここで)
-    # コンテキスト内での実行が必要
-    save_history(user_id, action_type, input_summary, full_thought, full_text)
-    
-    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+# --- SSE Generator that polls Redis for task progress ---
+def stream_task_updates(task_id):
+    last_thought = ""
+    last_text = ""
+    while True:
+        task = get_task(task_id)
+        if not task:
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Task not found'})}\n\n"
+            return
+        
+        status = task.get('status', 'running')
+        thought = task.get('thought', '') or ''
+        text = task.get('result', '') or ''
+        
+        if thought != last_thought:
+            new_part = thought[len(last_thought):]
+            if new_part:
+                yield f"data: {json.dumps({'type': 'thought', 'content': new_part})}\n\n"
+            last_thought = thought
+        
+        if text != last_text:
+            new_part = text[len(last_text):]
+            if new_part:
+                yield f"data: {json.dumps({'type': 'text', 'content': new_part})}\n\n"
+            last_text = text
+        
+        if status == 'done':
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+        elif status == 'error':
+            yield f"data: {json.dumps({'type': 'error', 'content': task.get('error', 'Unknown error')})}\n\n"
+            return
+        
+        time.sleep(0.3)
 
 def create_stream_response(generator):
     response = Response(stream_with_context(generator), mimetype='text/event-stream')
@@ -789,7 +868,14 @@ def transcribe():
     
     model = request.form.get('model', 'gemini-3.5-flash')
     
-    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "transcribe", "Audio Input", model=model))
+    task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
+    thread = threading.Thread(
+        target=process_gemini_background,
+        args=(task_id, api_key, payload, current_user.id, "transcribe", "Audio Input", model)
+    )
+    thread.daemon = True
+    thread.start()
+    return create_stream_response(stream_task_updates(task_id))
 
 @app.route('/reanalyze', methods=['POST'])
 @login_required
@@ -831,7 +917,14 @@ def reanalyze():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
     }
     model = data.get('model', 'gemini-3.5-flash')
-    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "reanalyze", "Re-analysis Request", model=model))
+    task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
+    thread = threading.Thread(
+        target=process_gemini_background,
+        args=(task_id, api_key, payload, current_user.id, "reanalyze", "Re-analysis Request", model)
+    )
+    thread.daemon = True
+    thread.start()
+    return create_stream_response(stream_task_updates(task_id))
 
 @app.route('/improve', methods=['POST'])
 @login_required
@@ -881,7 +974,14 @@ def improve():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
     }
     model = data.get('model', 'gemini-3.5-flash')
-    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "improve", instruction, model=model))
+    task_id = create_task(current_user.id, "improve", instruction, model)
+    thread = threading.Thread(
+        target=process_gemini_background,
+        args=(task_id, api_key, payload, current_user.id, "improve", instruction, model)
+    )
+    thread.daemon = True
+    thread.start()
+    return create_stream_response(stream_task_updates(task_id))
 
 # --- File & History APIs ---
 @app.route('/delete_audio', methods=['POST'])
@@ -1024,7 +1124,14 @@ def upload_complete():
 
     model = request.form.get('model', 'gemini-3.5-flash')
 
-    return create_stream_response(stream_gemini_and_save(api_key, payload, current_user.id, "transcribe", "Audio Input", model=model))
+    task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
+    thread = threading.Thread(
+        target=process_gemini_background,
+        args=(task_id, api_key, payload, current_user.id, "transcribe", "Audio Input", model)
+    )
+    thread.daemon = True
+    thread.start()
+    return create_stream_response(stream_task_updates(task_id))
 
 @app.route('/api/delete_file/<filename>', methods=['POST'])
 @login_required
@@ -1120,6 +1227,46 @@ def get_history():
             'expired': is_expired
         })
     return jsonify(data)
+
+# --- Task Recovery APIs (Redis-backed) ---
+TASK_EXEMPT_ENDPOINTS = {'api.task_stream'}
+
+@app.route('/api/tasks')
+@login_required
+def list_tasks():
+    try:
+        task_ids = redis_client.smembers(f"user:{current_user.id}:tasks") or set()
+        tasks = []
+        for tid in list(task_ids):
+            task = get_task(tid)
+            if task:
+                tasks.append({
+                    'id': tid,
+                    'status': task.get('status'),
+                    'action_type': task.get('action_type'),
+                    'input_summary': task.get('input_summary'),
+                    'thought': task.get('thought', ''),
+                    'result': task.get('result', ''),
+                    'model': task.get('model'),
+                    'created_at': task.get('created_at'),
+                })
+            else:
+                redis_client.srem(f"user:{current_user.id}:tasks", tid)
+        # running first, then by recency
+        tasks.sort(key=lambda t: (0 if t['status'] == 'running' else 1, -(float(t['created_at']) if t['created_at'] else 0)))
+        return jsonify(tasks)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/task_stream/<task_id>')
+@login_required
+def task_stream(task_id):
+    task = get_task(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    if task.get('user_id') != str(current_user.id):
+        return jsonify({'error': 'Access denied'}), 403
+    return create_stream_response(stream_task_updates(task_id))
 
 if __name__ == '__main__':
     with app.app_context():
