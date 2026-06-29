@@ -125,6 +125,26 @@ def protect_csrf():
         if not session_token or not request_token or request_token != session_token:
             return jsonify({'error': 'CSRF validation failed'}), 400
 
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline'; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-src https://challenges.cloudflare.com; "
+        "media-src 'self' blob:; "
+        "base-uri 'self'; "
+        "form-action 'self';"
+    )
+    response.headers['Content-Security-Policy'] = csp
+    return response
+
 # --- Models ---
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -499,14 +519,26 @@ def login():
             flash('不審なクライアントからのアクセスが検知されました。ブラウザの設定を確認してください。')
             return redirect(url_for('login'))
 
+        # 定数時間比較: ユーザーが存在しない場合もダミーハッシュで比較し、タイミング差をなくす
         if user:
-            if user.is_locked:
-                flash('アカウントがロックされています。解除が必要な場合は下記から申請してください。')
-                return redirect(url_for('login'))
-            if check_password_hash(user.password, password):
-                login_user(user, remember=True)
-                return redirect(url_for('index'))
-        flash('ログイン失敗。')
+            password_valid = check_password_hash(user.password, password)
+        else:
+            # 存在しないユーザーの場合もダミーハッシュで比較 (時間差による列挙防止)
+            dummy_hash = generate_password_hash('dummy_value_for_timing')
+            check_password_hash(dummy_hash, password)
+            password_valid = False
+        
+        if not password_valid:
+            flash('ログイン失敗。')
+        elif user.is_locked:
+            flash('アカウントがロックされています。解除が必要な場合は下記から申請してください。')
+            return redirect(url_for('login'))
+        else:
+            session.clear()
+            login_user(user, remember=True)
+            session['csrf_token'] = secrets.token_urlsafe(32)
+            session.permanent = True
+            return redirect(url_for('index'))
     
     # フォーム表示時刻を記録
     session['_form_load_time'] = time.time()
@@ -550,6 +582,7 @@ def request_unlock():
 @app.route('/logout')
 def logout():
     logout_user()
+    session.clear()
     return redirect(url_for('welcome'))
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -609,7 +642,8 @@ def delete_account():
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Account deletion failed for user {current_user.username}: {e}", exc_info=True)
+        return jsonify({'error': 'アカウント削除に失敗しました'}), 500
 
 # --- Word List Routes ---
 @app.route('/api/word_sets/manage_html')
@@ -742,7 +776,8 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                 break
             except Exception as e:
                 had_error = True
-                update_task(task_id, status='error', error=str(e))
+                logger.error(f"Gemini API request failed for task {task_id}: {e}", exc_info=True)
+                update_task(task_id, status='error', error='APIリクエスト中にエラーが発生しました')
                 return
         
         if had_error:
@@ -751,7 +786,8 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
         save_history(user_id, action_type, input_summary, full_thought, full_text)
         update_task(task_id, status='done', thought=full_thought, result=full_text)
     except Exception as e:
-        update_task(task_id, status='error', error=str(e))
+        logger.error(f"Background task {task_id} failed: {e}", exc_info=True)
+        update_task(task_id, status='error', error='処理中にエラーが発生しました')
 
 # --- SSE Generator that polls Redis for task progress ---
 def stream_task_updates(task_id):
@@ -1042,6 +1078,14 @@ def uploaded_file(filename):
     if not p or not os.path.exists(p): return "Access denied", 403
     return send_from_directory(app.config['UPLOAD_FOLDER'], os.path.basename(p))
 
+def sanitize_upload_id(upload_id):
+    if not upload_id or not isinstance(upload_id, str):
+        return None
+    sanitized = secure_filename(upload_id)
+    if sanitized != upload_id or not sanitized:
+        return None
+    return sanitized
+
 @app.route('/api/upload_chunk', methods=['POST'])
 @login_required
 def upload_chunk():
@@ -1051,10 +1095,14 @@ def upload_chunk():
     original_filename = request.form.get('original_filename')
     chunk_file = request.files.get('chunk')
 
-    if not all([upload_id, chunk_index, total_chunks, chunk_file]):
+    upload_id = sanitize_upload_id(upload_id)
+    if not upload_id:
+        return jsonify({'error': 'Invalid upload_id'}), 400
+
+    if not all([chunk_index, total_chunks, chunk_file]):
         return jsonify({'error': 'Missing fields'}), 400
 
-    chunks_dir = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', str(upload_id))
+    chunks_dir = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', upload_id)
     os.makedirs(chunks_dir, exist_ok=True)
 
     chunk_path = os.path.join(chunks_dir, f'chunk_{int(chunk_index):06d}')
@@ -1073,11 +1121,15 @@ def upload_complete():
     total_chunks = request.form.get('total_chunks')
     original_filename = request.form.get('original_filename')
 
-    if not all([upload_id, total_chunks]):
+    upload_id = sanitize_upload_id(upload_id)
+    if not upload_id:
+        return jsonify({'error': 'Invalid upload_id'}), 400
+
+    if not total_chunks:
         return jsonify({'error': 'Missing fields'}), 400
 
     total_chunks = int(total_chunks)
-    chunks_dir = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', str(upload_id))
+    chunks_dir = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', upload_id)
 
     # Verify all chunks present
     for i in range(total_chunks):
@@ -1104,7 +1156,8 @@ def upload_complete():
         shutil.rmtree(chunks_dir, ignore_errors=True)
         if os.path.exists(filepath):
             os.remove(filepath)
-        return jsonify({'error': f'Merge failed: {str(e)}'}), 500
+        logger.error(f"Chunk merge failed for upload {upload_id}: {e}", exc_info=True)
+        return jsonify({'error': 'ファイルの結合に失敗しました'}), 500
 
     shutil.rmtree(chunks_dir, ignore_errors=True)
 
@@ -1176,7 +1229,8 @@ def delete_history(history_id):
         return jsonify({'error': 'なし'}), 404
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"History deletion failed for user {current_user.username}: {e}", exc_info=True)
+        return jsonify({'error': '履歴の削除に失敗しました'}), 500
 
 @app.route('/api/clear_history', methods=['POST'])
 @login_required
@@ -1187,7 +1241,8 @@ def clear_history():
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"History clear failed for user {current_user.username}: {e}", exc_info=True)
+        return jsonify({'error': '履歴のクリアに失敗しました'}), 500
 
 @app.route('/api/clear_all', methods=['POST'])
 @login_required
@@ -1205,7 +1260,7 @@ def clear_all():
                     try:
                         os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
                     except Exception as e:
-                        print(f"clear_all file removal error: {e}")
+                        logger.warning(f"clear_all file removal error: {e}")
                         continue
         
         # 3. セッション変数をクリア
@@ -1215,7 +1270,8 @@ def clear_all():
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Clear all failed for user {current_user.username}: {e}", exc_info=True)
+        return jsonify({'error': 'データのクリアに失敗しました'}), 500
 
 @app.route('/api/history')
 @login_required
@@ -1268,7 +1324,8 @@ def list_tasks():
         tasks.sort(key=lambda t: (0 if t['status'] == 'running' else 1, -(float(t['created_at']) if t['created_at'] else 0)))
         return jsonify(tasks)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Task listing failed for user {current_user.username}: {e}", exc_info=True)
+        return jsonify({'error': 'タスク一覧の取得に失敗しました'}), 500
 
 @app.route('/api/task_stream/<task_id>')
 @login_required
