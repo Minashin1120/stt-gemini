@@ -234,39 +234,515 @@ html[data-theme="classic"] {
     --visualizer-color: #4d90fe;
 }
 
-/* Base Overrides */
+/* =========================================
+   Liquid Glass - Base Overrides
+   ========================================= */
+
+/* --- Body --- */
 body {
-    background-color: var(--bg-color) !important;
+    background: linear-gradient(135deg, #f0f4ff 0%, #e8edf5 50%, #f5f0ff 100%) fixed;
     color: var(--text-color) !important;
     font-family: var(--font-family) !important;
     transition: background 0.3s ease, color 0.3s ease;
 }
-.card {
-    background-color: var(--card-bg) !important;
-    border: 1px solid var(--card-border) !important;
-    border-radius: var(--radius) !important;
-    box-shadow: var(--shadow) !important;
+html[data-theme="gaming"] body {
+    background: linear-gradient(-45deg, #1a0b1a, #0b0b1a, #000000, #1a0000) fixed;
+    background-size: 400% 400%;
+    animation: gaming-bg-wave 10s ease infinite !important;
+}
+html[data-theme="electronic"] body {
+    background: #000000 fixed;
+}
+html[data-theme="retro"] body {
+    background: linear-gradient(135deg, #f4e4bc, #e8d5a8) fixed;
+}
+html[data-theme="stylish"] body {
+    background: #ffffff fixed;
+}
+html[data-theme="business"] body {
+    background: linear-gradient(135deg, #f1f5f9, #e2e8f0) fixed;
+}
+html[data-theme="material3"] body {
+    background: linear-gradient(135deg, #fffbfe, #f3edf7) fixed;
+}
+
+/* --- Glass Base (shared) --- */
+.glass {
+    background: rgba(255, 255, 255, 0.55) !important;
+    backdrop-filter: blur(24px) saturate(180%) contrast(110%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%) contrast(110%);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.5);
     color: var(--text-color) !important;
 }
+
+/* --- Card --- */
+.card {
+    background: rgba(255, 255, 255, 0.55) !important;
+    backdrop-filter: blur(24px) saturate(180%) contrast(110%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%) contrast(110%);
+    border: 1px solid rgba(255, 255, 255, 0.35) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+    color: var(--text-color) !important;
+}
+.card-header {
+    background: transparent !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 16px 20px;
+}
+
+/* --- Navbar --- */
 .navbar {
-    background-color: var(--navbar-bg) !important;
-    border-bottom: 1px solid var(--card-border);
+    background: rgba(255, 255, 255, 0.45) !important;
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
 }
 .navbar-brand, .nav-link { color: var(--navbar-text) !important; }
+
+/* --- Buttons --- */
+.btn {
+    border-radius: 12px !important;
+    padding: 8px 18px;
+    font-weight: 500;
+    transition: transform 0.2s, box-shadow 0.2s, background 0.2s !important;
+}
+.btn:active {
+    transform: scale(0.97) !important;
+}
 .btn-primary {
-    background-color: var(--primary-color) !important;
+    background: linear-gradient(135deg, #007aff, #0051d5) !important;
+    border: none !important;
+    box-shadow: 0 2px 12px rgba(0, 122, 255, 0.25) !important;
+    color: #fff !important;
+}
+.btn-primary:hover {
+    box-shadow: 0 4px 20px rgba(0, 122, 255, 0.35) !important;
+    transform: translateY(-1px);
+}
+.btn-outline-primary {
+    background: rgba(255, 255, 255, 0.25) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    color: var(--primary-color) !important;
+}
+.btn-outline-primary:hover {
+    background: rgba(255, 255, 255, 0.4) !important;
     border-color: var(--primary-color) !important;
-    border-radius: var(--radius) !important;
 }
+.btn-outline-secondary {
+    background: rgba(255, 255, 255, 0.2) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: var(--text-color) !important;
+}
+.btn-outline-secondary:hover {
+    background: rgba(255, 255, 255, 0.35) !important;
+}
+.btn-outline-danger {
+    background: rgba(255, 59, 48, 0.12) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    border: 1px solid rgba(255, 59, 48, 0.2) !important;
+    color: #ff3b30 !important;
+}
+.btn-outline-danger:hover {
+    background: rgba(255, 59, 48, 0.25) !important;
+}
+.btn-outline-dark {
+    background: rgba(0, 0, 0, 0.08) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    color: var(--text-color) !important;
+}
+.btn-outline-dark:hover {
+    background: rgba(0, 0, 0, 0.15) !important;
+}
+.btn-warning {
+    background: linear-gradient(135deg, #ff9500, #e68a00) !important;
+    border: none !important;
+    color: #fff !important;
+    box-shadow: 0 2px 12px rgba(255, 149, 0, 0.25) !important;
+}
+.btn-info {
+    background: linear-gradient(135deg, #5ac8fa, #007aff) !important;
+    border: none !important;
+    box-shadow: 0 2px 12px rgba(90, 200, 250, 0.25) !important;
+}
+.btn-check:checked + .btn-outline-primary {
+    background: linear-gradient(135deg, #007aff, #0051d5) !important;
+    border: none !important;
+    color: #fff !important;
+    box-shadow: 0 2px 12px rgba(0, 122, 255, 0.3) !important;
+}
+.btn-check:checked + .btn-outline-secondary {
+    background: linear-gradient(135deg, #007aff, #0051d5) !important;
+    border: none !important;
+    color: #fff !important;
+}
+.btn-group .btn {
+    border-radius: 0 !important;
+}
+.btn-group .btn:first-child {
+    border-radius: 12px 0 0 12px !important;
+}
+.btn-group .btn:last-child {
+    border-radius: 0 12px 12px 0 !important;
+}
+
+/* --- Form Controls --- */
 .form-control, .form-select {
-    background-color: var(--input-bg) !important;
-    color: var(--input-text) !important;
-    border: 1px solid var(--input-border) !important;
-    border-radius: var(--radius) !important;
+    background: rgba(255, 255, 255, 0.35) !important;
+    backdrop-filter: blur(12px) saturate(180%) contrast(110%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%) contrast(110%);
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 12px !important;
+    color: var(--text-color) !important;
+    box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.3);
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s !important;
 }
-.btn-close { filter: invert(var(--invert-icon, 0)); }
+.form-control:focus, .form-select:focus {
+    border-color: rgba(255, 255, 255, 0.6) !important;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.3) !important;
+    background: rgba(255, 255, 255, 0.45) !important;
+}
+
+/* --- Nav Pills --- */
+.nav-pills .nav-link {
+    border-radius: 12px !important;
+    padding: 8px 20px;
+    color: var(--text-color);
+    opacity: 0.65;
+    transition: opacity 0.2s, background 0.2s;
+}
+.nav-pills .nav-link.active {
+    background: linear-gradient(135deg, #007aff, #0051d5) !important;
+    color: #fff !important;
+    opacity: 1;
+    box-shadow: 0 2px 12px rgba(0, 122, 255, 0.25);
+}
+.nav-pills .nav-link:not(.active):hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* --- Modal (Bootstrap) --- */
+.modal-content {
+    background: rgba(255, 255, 255, 0.55) !important;
+    backdrop-filter: blur(24px) saturate(180%) contrast(110%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%) contrast(110%);
+    border: 1px solid rgba(255, 255, 255, 0.35) !important;
+    border-radius: 20px !important;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+.modal-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+    padding: 18px 22px;
+}
+.modal-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
+    padding: 14px 22px;
+}
+.modal-backdrop {
+    background: rgba(0, 0, 0, 0.3) !important;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+/* --- Toast --- */
+.toast {
+    background: rgba(255, 255, 255, 0.7) !important;
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08) !important;
+}
+.toast.bg-dark {
+    background: rgba(30, 30, 35, 0.8) !important;
+}
+
+/* --- Accordion --- */
+.accordion-item {
+    background: transparent !important;
+    border: none !important;
+}
+.accordion-button {
+    background: rgba(255, 255, 255, 0.3) !important;
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 12px !important;
+    color: var(--text-color) !important;
+    box-shadow: none !important;
+}
+.accordion-button:not(.collapsed) {
+    background: rgba(255, 255, 255, 0.4) !important;
+    border-radius: 12px 12px 0 0 !important;
+}
+.accordion-body {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+}
+
+/* --- Upload Area --- */
+.upload-area {
+    background: rgba(255, 255, 255, 0.2) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    border: 2px dashed rgba(255, 255, 255, 0.3) !important;
+    border-radius: 16px;
+    transition: background 0.2s, border-color 0.2s;
+}
+.upload-area:hover {
+    background: rgba(255, 255, 255, 0.3) !important;
+    border-color: var(--primary-color) !important;
+}
+.upload-area.drag-over {
+    background: rgba(255, 255, 255, 0.35) !important;
+    border-color: var(--primary-color) !important;
+}
+
+/* --- History Items --- */
+.history-item {
+    background: rgba(255, 255, 255, 0.2) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-left: 4px solid var(--primary-color) !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+    margin-bottom: 10px;
+    transition: background 0.2s;
+}
+.history-item:hover {
+    background: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* --- Result Textarea --- */
+#resultText {
+    background: transparent !important;
+    border: none !important;
+    padding: 16px 20px !important;
+}
+
+/* --- Visualizer --- */
+#audioVisualizer {
+    border-radius: 12px;
+}
+
+/* --- Alert --- */
+.alert {
+    border-radius: 12px !important;
+    border: none !important;
+}
+.alert-info {
+    background: rgba(90, 200, 250, 0.15) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    color: var(--text-color) !important;
+}
+.alert-warning {
+    background: rgba(255, 149, 0, 0.12) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    color: var(--text-color) !important;
+}
+
+/* --- List Group (for modals) --- */
+.list-group-item {
+    background: rgba(255, 255, 255, 0.15) !important;
+    backdrop-filter: blur(8px) saturate(180%);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: var(--text-color) !important;
+}
+
+/* --- Close button --- */
+.btn-close { filter: var(--invert-icon, 0); opacity: 0.6; transition: opacity 0.2s; }
+.btn-close:hover { opacity: 1; }
 html[data-theme="gaming"] .btn-close,
 html[data-theme="electronic"] .btn-close { filter: invert(1); }
+
+/* =========================================
+   Gaming theme overrides for Liquid Glass
+   ========================================= */
+html[data-theme="gaming"] .card,
+html[data-theme="gaming"] .btn-primary,
+html[data-theme="gaming"] .form-control:focus {
+    animation: gaming-rgb-border 5s linear infinite alternate;
+    border-width: 2px !important;
+}
+html[data-theme="gaming"] .card {
+    background: rgba(12, 15, 20, 0.82) !important;
+    border-color: #ff00ff !important;
+}
+html[data-theme="gaming"] .navbar {
+    background: rgba(0, 0, 0, 0.6) !important;
+    border-bottom: 1px solid rgba(255, 0, 255, 0.3) !important;
+}
+html[data-theme="gaming"] .form-control,
+html[data-theme="gaming"] .form-select {
+    background: rgba(0, 0, 0, 0.5) !important;
+    border-color: rgba(255, 0, 255, 0.3) !important;
+    color: var(--text-color) !important;
+}
+html[data-theme="gaming"] .form-control:focus,
+html[data-theme="gaming"] .form-select:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 3px rgba(0, 255, 204, 0.15) !important;
+}
+html[data-theme="gaming"] .btn-primary {
+    background: linear-gradient(135deg, #00ffcc, #00997a) !important;
+    box-shadow: 0 2px 12px rgba(0, 255, 204, 0.2) !important;
+    color: #000 !important;
+}
+html[data-theme="gaming"] .modal-content {
+    background: rgba(12, 15, 20, 0.85) !important;
+    border-color: rgba(255, 0, 255, 0.2) !important;
+}
+html[data-theme="gaming"] .nav-pills .nav-link.active {
+    background: linear-gradient(135deg, #00ffcc, #00997a) !important;
+    box-shadow: 0 2px 12px rgba(0, 255, 204, 0.25) !important;
+    color: #000 !important;
+}
+html[data-theme="gaming"] .btn-outline-primary {
+    background: rgba(0, 255, 204, 0.08) !important;
+    border-color: rgba(0, 255, 204, 0.3) !important;
+    color: #00ffcc !important;
+}
+html[data-theme="gaming"] .btn-outline-primary:hover {
+    background: rgba(0, 255, 204, 0.2) !important;
+}
+html[data-theme="gaming"] .btn-check:checked + .btn-outline-primary {
+    background: linear-gradient(135deg, #00ffcc, #00997a) !important;
+    color: #000 !important;
+}
+html[data-theme="gaming"] .upload-area {
+    background: rgba(0, 0, 0, 0.3) !important;
+    border-color: rgba(255, 0, 255, 0.4) !important;
+}
+html[data-theme="gaming"] .upload-area:hover {
+    background: rgba(0, 0, 0, 0.4) !important;
+}
+
+/* =========================================
+   Electronic theme overrides for Liquid Glass
+   ========================================= */
+html[data-theme="electronic"] .card,
+html[data-theme="electronic"] .btn-primary,
+html[data-theme="electronic"] .form-control:focus {
+    border-width: 2px !important;
+}
+html[data-theme="electronic"] .card {
+    background: rgba(0, 10, 0, 0.8) !important;
+    border-color: #003300 !important;
+}
+html[data-theme="electronic"] .navbar {
+    background: rgba(0, 10, 0, 0.7) !important;
+}
+html[data-theme="electronic"] .form-control,
+html[data-theme="electronic"] .form-select {
+    background: rgba(0, 0, 0, 0.5) !important;
+    border-color: rgba(0, 255, 0, 0.2) !important;
+    color: var(--text-color) !important;
+}
+html[data-theme="electronic"] .form-control:focus {
+    border-color: #00ff00 !important;
+}
+html[data-theme="electronic"] .modal-content {
+    background: rgba(0, 10, 0, 0.85) !important;
+}
+html[data-theme="electronic"] .btn-primary {
+    background: linear-gradient(135deg, #00ff00, #009900) !important;
+    color: #000 !important;
+}
+html[data-theme="electronic"] .nav-pills .nav-link.active {
+    background: linear-gradient(135deg, #00ff00, #009900) !important;
+    color: #000 !important;
+}
+html[data-theme="electronic"] .upload-area {
+    background: rgba(0, 10, 0, 0.3) !important;
+    border-color: rgba(0, 255, 0, 0.2) !important;
+}
+
+/* =========================================
+   Retro theme overrides
+   ========================================= */
+html[data-theme="retro"] .card {
+    background: rgba(255, 252, 240, 0.7) !important;
+}
+html[data-theme="retro"] .navbar {
+    background: rgba(215, 204, 200, 0.6) !important;
+}
+html[data-theme="retro"] .form-control,
+html[data-theme="retro"] .form-select {
+    background: rgba(255, 248, 225, 0.5) !important;
+}
+html[data-theme="retro"] .btn-primary {
+    background: linear-gradient(135deg, #d84315, #bf360c) !important;
+}
+html[data-theme="retro"] .nav-pills .nav-link.active {
+    background: linear-gradient(135deg, #d84315, #bf360c) !important;
+}
+
+/* =========================================
+   Business theme overrides
+   ========================================= */
+html[data-theme="business"] .card {
+    background: rgba(255, 255, 255, 0.6) !important;
+}
+html[data-theme="business"] .navbar {
+    background: rgba(30, 58, 138, 0.7) !important;
+    backdrop-filter: blur(30px) saturate(200%);
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
+}
+html[data-theme="business"] .btn-primary {
+    background: linear-gradient(135deg, #1e40af, #1e3a8a) !important;
+}
+html[data-theme="business"] .nav-pills .nav-link.active {
+    background: linear-gradient(135deg, #1e40af, #1e3a8a) !important;
+}
+
+/* =========================================
+   Material 3 theme overrides
+   ========================================= */
+html[data-theme="material3"] .card {
+    background: rgba(243, 237, 247, 0.65) !important;
+}
+html[data-theme="material3"] .navbar {
+    background: rgba(243, 237, 247, 0.6) !important;
+}
+html[data-theme="material3"] .btn-primary {
+    background: linear-gradient(135deg, #6750a4, #4f3885) !important;
+}
+html[data-theme="material3"] .nav-pills .nav-link.active {
+    background: linear-gradient(135deg, #6750a4, #4f3885) !important;
+}
+
+/* =========================================
+   Material 2 / Classic theme overrides
+   ========================================= */
+html[data-theme="material2"] .btn-primary {
+    background: linear-gradient(135deg, #6200ee, #5000c4) !important;
+}
+html[data-theme="material2"] .nav-pills .nav-link.active {
+    background: linear-gradient(135deg, #6200ee, #5000c4) !important;
+}
+html[data-theme="classic"] .btn-primary {
+    background: linear-gradient(135deg, #4d90fe, #357ae8) !important;
+}
+html[data-theme="classic"] .nav-pills .nav-link.active {
+    background: linear-gradient(135deg, #4d90fe, #357ae8) !important;
+}
 
 /* =========================================
    APIキー入力モーダル (Liquid Glass)
