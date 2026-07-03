@@ -5,20 +5,33 @@
         API設定
     </div>
     <div class="card-body">
-        <p class="small text-muted">Gemini APIキーを入力してください。キーは安全に暗号化されて保存されます。</p>
+        <p class="small text-muted">APIキーを入力してください。キーは安全に暗号化されて保存されます。</p>
         <div class="alert alert-{% if has_key %}success{% else %}warning{% endif %} py-2">
-            ステータス: {% if has_key %}APIキー設定済み (暗号化されています){% else %}APIキーが未設定です{% endif %}
+            Gemini ステータス: {% if has_key %}APIキー設定済み (暗号化されています){% else %}未設定{% endif %}
+        </div>
+        <div class="alert alert-{% if has_xai_key %}success{% else %}warning{% endif %} py-2">
+            xAI (Grok) ステータス: {% if has_xai_key %}APIキー設定済み (暗号化されています){% else %}未設定{% endif %}
         </div>
         <form method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
-                <label>Gemini API キー</label>
+                <label>Gemini API キー (3.5 Flash / 3.0 Flash / 3.1 Flash-Lite)</label>
                 <div class="input-group">
                     <input type="password" name="api_key" id="apiKeyInput" class="form-control" placeholder="AIzaSy..." value="{{ api_key }}">
                     <button type="button" id="copyApiKeyBtn" class="btn btn-outline-secondary" {% if not has_key %}disabled{% endif %} title="APIキーをコピー">
                         <i class="bi bi-clipboard"></i>
                     </button>
                 </div>
+            </div>
+            <div class="mb-3">
+                <label>xAI (Grok STT) API キー</label>
+                <div class="input-group">
+                    <input type="password" name="xai_api_key" id="xaiApiKeyInput" class="form-control" placeholder="xai-..." value="{{ xai_api_key }}">
+                    <button type="button" id="copyXaiApiKeyBtn" class="btn btn-outline-secondary" {% if not has_xai_key %}disabled{% endif %} title="xAI APIキーをコピー">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                </div>
+                <div class="form-text">Grok STTモデルを使用する場合に必要です。xAIコンソールから取得してください。</div>
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold">履歴・データの保持時間 (分)</label>
@@ -89,14 +102,21 @@
         const deleteBtn = document.getElementById('deleteAccountBtn');
         const copyBtn = document.getElementById('copyApiKeyBtn');
         const apiKeyInput = document.getElementById('apiKeyInput');
-
-        // ... (既存のテーマ処理)
+        const copyXaiBtn = document.getElementById('copyXaiApiKeyBtn');
+        const xaiApiKeyInput = document.getElementById('xaiApiKeyInput');
         
         if (copyBtn && apiKeyInput) {
             copyBtn.addEventListener('click', () => {
                 const key = apiKeyInput.value;
                 if (!key) return;
-                navigator.clipboard.writeText(key).then(() => showToast('APIキーをコピーしました'));
+                navigator.clipboard.writeText(key).then(() => showToast('Gemini APIキーをコピーしました'));
+            });
+        }
+        if (copyXaiBtn && xaiApiKeyInput) {
+            copyXaiBtn.addEventListener('click', () => {
+                const key = xaiApiKeyInput.value;
+                if (!key) return;
+                navigator.clipboard.writeText(key).then(() => showToast('xAI APIキーをコピーしました'));
             });
         }
 
