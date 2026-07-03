@@ -134,7 +134,7 @@ def add_security_headers(response):
         "default-src 'self'; "
         "script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
         "style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline'; "
-        "font-src 'self' https://fonts.gstatic.com data:; "
+        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
         "img-src 'self' data:; "
         "connect-src 'self'; "
         "frame-src https://challenges.cloudflare.com; "
