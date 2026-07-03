@@ -230,18 +230,50 @@
 
 <div class="api-key-overlay" id="apiKeyOverlay">
     <div class="api-key-modal">
-        <div class="api-key-modal-header">
-            <span id="apiKeyModalTitle">APIキーの設定</span>
-            <button type="button" class="btn-close" id="btnCloseApiKeyModal"></button>
+        <!-- View: Input -->
+        <div id="akViewInput">
+            <div class="api-key-modal-header">
+                <span id="akTitle">APIキーの設定</span>
+                <button type="button" class="btn-close" id="akBtnClose"></button>
+            </div>
+            <div class="api-key-modal-body">
+                <p id="akMessage">選択中のモデルを使用するにはAPIキーが必要です。</p>
+                <input type="password" id="akInput" class="form-control" placeholder="APIキーを入力してください">
+                <div class="api-key-modal-error" id="akError"></div>
+            </div>
+            <div class="api-key-modal-footer">
+                <button id="akBtnSwitch" class="btn btn-outline-secondary">別のモデルを選択</button>
+                <button id="akBtnSave" class="btn btn-primary">保存して送信</button>
+            </div>
         </div>
-        <div class="api-key-modal-body">
-            <p id="apiKeyModalMessage">選択中のモデルを使用するにはAPIキーが必要です。</p>
-            <input type="password" id="apiKeyInputModal" class="form-control" placeholder="APIキーを入力してください">
-            <div class="api-key-modal-error" id="apiKeyModalError"></div>
+        <!-- View: Switch Model -->
+        <div id="akViewSwitch" style="display:none">
+            <div class="api-key-modal-header">
+                <span>モデルを選択</span>
+                <button type="button" class="btn-close" id="akBtnCloseSwitch"></button>
+            </div>
+            <div class="api-key-modal-body">
+                <p>APIキーが設定されているモデルを選んでください。</p>
+                <div id="akModelList" class="d-flex flex-column gap-2"></div>
+                <div id="akNoModels" class="small text-muted mt-2" style="display:none">利用可能なモデルがありません。</div>
+            </div>
+            <div class="api-key-modal-footer">
+                <button id="akBtnBackSwitch" class="btn btn-secondary">戻る</button>
+            </div>
         </div>
-        <div class="api-key-modal-footer">
-            <button id="btnSwitchModel" class="btn btn-outline-secondary">別のモデルを選択</button>
-            <button id="btnSaveApiKey" class="btn btn-primary">保存して送信</button>
+        <!-- View: Discard Warning -->
+        <div id="akViewDiscard" style="display:none">
+            <div class="api-key-modal-header">
+                <span>音声ファイルを破棄</span>
+            </div>
+            <div class="api-key-modal-body">
+                <p>録音した音声ファイルは破棄されます。</p>
+                <button id="akBtnDownload" class="btn btn-outline-primary"><i class="bi bi-download me-1"></i>音声をダウンロード</button>
+            </div>
+            <div class="api-key-modal-footer">
+                <button id="akBtnBackDiscard" class="btn btn-secondary">戻る</button>
+                <button id="akBtnConfirmDiscard" class="btn btn-danger">破棄する</button>
+            </div>
         </div>
     </div>
 </div>
@@ -455,19 +487,30 @@ function updateWordSetButtonText(sets) {
 
 // --- API Key Modal ---
 let _resolveApiKeyPrompt = null;
-let _rejectApiKeyPrompt = null;
+let _akAudioBlob = null;
+let _akAudioName = null;
+let _akIsRecording = false;
+let _akOriginalModel = null;
 
 function getApiKeyType(model) {
     return model === 'grok-stt' ? 'xai' : 'gemini';
 }
 
+function showView(viewId) {
+    document.getElementById('akViewInput').style.display = viewId === 'akViewInput' ? '' : 'none';
+    document.getElementById('akViewSwitch').style.display = viewId === 'akViewSwitch' ? '' : 'none';
+    document.getElementById('akViewDiscard').style.display = viewId === 'akViewDiscard' ? '' : 'none';
+}
+
 function showApiKeyModal(keyType, model) {
     const overlay = document.getElementById('apiKeyOverlay');
-    const titleEl = document.getElementById('apiKeyModalTitle');
-    const msgEl = document.getElementById('apiKeyModalMessage');
-    const inputEl = document.getElementById('apiKeyInputModal');
-    const errorEl = document.getElementById('apiKeyModalError');
-    const saveBtn = document.getElementById('btnSaveApiKey');
+    const titleEl = document.getElementById('akTitle');
+    const msgEl = document.getElementById('akMessage');
+    const inputEl = document.getElementById('akInput');
+    const errorEl = document.getElementById('akError');
+    const saveBtn = document.getElementById('akBtnSave');
+
+    showView('akViewInput');
 
     errorEl.style.display = 'none';
     inputEl.value = '';
@@ -516,7 +559,7 @@ function showApiKeyModal(keyType, model) {
                 return;
             }
             closeApiKeyModal();
-            if (_resolveApiKeyPrompt) _resolveApiKeyPrompt(true);
+            if (_resolveApiKeyPrompt) _resolveApiKeyPrompt({ proceed: true, model: model });
         } catch (e) {
             errorEl.textContent = '通信エラーが発生しました';
             errorEl.style.display = 'block';
@@ -525,60 +568,162 @@ function showApiKeyModal(keyType, model) {
         }
     };
 
-    // Switch model button
-    document.getElementById('btnSwitchModel').onclick = () => {
-        closeApiKeyModal();
-        if (_resolveApiKeyPrompt) _resolveApiKeyPrompt(false);
-    };
+    // Switch model button -> show model selection
+    document.getElementById('akBtnSwitch').onclick = () => showSwitchView(model);
 
     // Close button
-    document.getElementById('btnCloseApiKeyModal').onclick = () => {
-        closeApiKeyModal();
-        if (_resolveApiKeyPrompt) _resolveApiKeyPrompt(false);
-    };
+    document.getElementById('akBtnClose').onclick = () => handleClose();
+    document.getElementById('akBtnCloseSwitch').onclick = () => handleClose();
 
     // Click outside to close
     overlay.onclick = (e) => {
-        if (e.target === overlay) {
-            closeApiKeyModal();
-            if (_resolveApiKeyPrompt) _resolveApiKeyPrompt(false);
-        }
+        if (e.target === overlay) handleClose();
     };
 
-    // Show with animation
+    // Escape key
+    overlay.onkeydown = (e) => {
+        if (e.key === 'Escape') handleClose();
+    };
+
     overlay.classList.add('show');
+    inputEl.focus();
+}
+
+function handleClose() {
+    if (_akIsRecording) {
+        showView('akViewDiscard');
+    } else {
+        closeApiKeyModal();
+        if (_resolveApiKeyPrompt) _resolveApiKeyPrompt({ proceed: false });
+    }
+}
+
+async function showSwitchView(currentModel) {
+    showView('akViewSwitch');
+
+    const listEl = document.getElementById('akModelList');
+    const noModelsEl = document.getElementById('akNoModels');
+
+    listEl.innerHTML = '<div class="text-center py-2"><span class="spinner-border spinner-border-sm me-1"></span>確認中...</div>';
+    noModelsEl.style.display = 'none';
+
+    try {
+        const r = await csrfFetch('/api/check_api_keys');
+        const data = await r.json();
+
+        const models = [];
+        if (data.has_gemini_key) {
+            models.push(
+                { label: '3.5 Flash', value: 'gemini-3.5-flash' },
+                { label: '3.0 Flash', value: 'gemini-3-flash-preview' },
+                { label: '3.1 Flash-Lite', value: 'gemini-3.1-flash-lite' }
+            );
+        }
+        if (data.has_xai_key) {
+            models.push({ label: 'Grok STT', value: 'grok-stt' });
+        }
+
+        if (models.length === 0) {
+            listEl.innerHTML = '';
+            noModelsEl.style.display = 'block';
+            return;
+        }
+
+        // Filter out current model
+        const available = models.filter(m => m.value !== currentModel);
+        if (available.length === 0) {
+            listEl.innerHTML = '<div class="text-muted small">現在のモデル以外に利用可能なモデルはありません。</div>';
+            return;
+        }
+
+        listEl.innerHTML = available.map(m => `
+            <button class="btn btn-outline-primary text-start model-option" data-model="${m.value}">
+                ${m.label}
+            </button>
+        `).join('');
+
+        listEl.querySelectorAll('.model-option').forEach(btn => {
+            btn.onclick = () => {
+                const model = btn.dataset.model;
+                // Update radio button
+                const radio = document.querySelector(`input[name="model_select"][value="${model}"]`);
+                if (radio) {
+                    radio.checked = true;
+                    radio.dispatchEvent(new Event('change'));
+                }
+                closeApiKeyModal();
+                if (_resolveApiKeyPrompt) _resolveApiKeyPrompt({ proceed: true, model: model });
+            };
+        });
+
+    } catch (e) {
+        listEl.innerHTML = '<div class="text-danger small">読み込みに失敗しました</div>';
+    }
+
+    document.getElementById('akBtnBackSwitch').onclick = () => {
+        showView('akViewInput');
+        document.getElementById('akInput').focus();
+    };
 }
 
 function closeApiKeyModal() {
     const overlay = document.getElementById('apiKeyOverlay');
     overlay.classList.remove('show');
-    const saveBtn = document.getElementById('btnSaveApiKey');
+    overlay.onkeydown = null;
+    const saveBtn = document.getElementById('akBtnSave');
     saveBtn.disabled = false;
     saveBtn.textContent = '保存して送信';
+    showView('akViewInput');
+    _akAudioBlob = null;
+    _akAudioName = null;
+    _akIsRecording = false;
+    _akOriginalModel = null;
 }
 
-function ensureApiKeyForModel(model) {
+function ensureApiKeyForModel(model, isRecording, audioBlob, audioName) {
     return new Promise((resolve) => {
-        // Check if key exists
         csrfFetch('/api/check_api_key', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model: model })
         }).then(r => r.json()).then(data => {
             if (data.has_key) {
-                resolve(true);
+                resolve({ proceed: true, model: model });
                 return;
             }
-            // Key not set — show modal
             const keyType = getApiKeyType(model);
             _resolveApiKeyPrompt = resolve;
+            _akAudioBlob = audioBlob || null;
+            _akAudioName = audioName || null;
+            _akIsRecording = !!isRecording;
+            _akOriginalModel = model;
             showApiKeyModal(keyType, model);
         }).catch(() => {
-            // If check fails, proceed anyway
-            resolve(true);
+            resolve({ proceed: true, model: model });
         });
     });
 }
+
+// Discard view buttons
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('akBtnBackDiscard').onclick = () => {
+        showView('akViewInput');
+        document.getElementById('akInput').focus();
+    };
+    document.getElementById('akBtnConfirmDiscard').onclick = () => {
+        closeApiKeyModal();
+        if (_resolveApiKeyPrompt) _resolveApiKeyPrompt({ proceed: false });
+    };
+    document.getElementById('akBtnDownload').onclick = () => {
+        if (_akAudioBlob) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(_akAudioBlob);
+            a.download = _akAudioName || 'recording.mp3';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+    };
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     let selectedFile = null, mediaRecorder, audioContext, processor, microphone, mp3Encoder, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [];
@@ -987,8 +1132,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function uploadFileSingle(file, append) {
         const model = getModel();
-        const keyReady = await ensureApiKeyForModel(model);
-        if (!keyReady) { el.stat.innerText = "準備完了"; return; }
+        const result = await ensureApiKeyForModel(model, false);
+        if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
+        const useModel = result.model;
         isAppendMode = append;
         el.stat.innerText = "アップロード中...";
         btnUploadNew.disabled = btnUploadAppend.disabled = true;
@@ -996,7 +1142,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fd = new FormData();
         fd.append('audio_file', file);
         fd.append('thinking_level', el.think.value);
-        fd.append('model', model);
+        fd.append('model', useModel);
         fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0');
         fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
         try {
@@ -1023,8 +1169,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function uploadFileChunked(file, append) {
         const model = getModel();
-        const keyReady = await ensureApiKeyForModel(model);
-        if (!keyReady) { btnUploadNew.disabled = btnUploadAppend.disabled = false; el.stat.innerText = "準備完了"; return; }
+        const result = await ensureApiKeyForModel(model, false);
+        if (!result.proceed) { btnUploadNew.disabled = btnUploadAppend.disabled = false; el.stat.innerText = "準備完了"; return; }
+        const useModel = result.model;
         isAppendMode = append;
         btnUploadNew.disabled = btnUploadAppend.disabled = true;
         abortController = new AbortController();
@@ -1073,7 +1220,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fd.append('total_chunks', totalChunks);
             fd.append('original_filename', file.name);
             fd.append('thinking_level', el.think.value);
-            fd.append('model', getModel());
+            fd.append('model', useModel);
             fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0');
             fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
 
@@ -1186,10 +1333,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function upl(b,n){
         const model = getModel();
-        const keyReady = await ensureApiKeyForModel(model);
-        if (!keyReady) { el.stat.innerText = "準備完了"; return; }
+        const result = await ensureApiKeyForModel(model, true, b, n);
+        if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
+        const useModel = result.model;
         abortController = new AbortController();
-        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', model); fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0'); fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
+        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', useModel); fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0'); fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
         try{
             const r=await csrfFetch('/transcribe',{
                 method:'POST',
@@ -1208,15 +1356,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     el.re.onclick=async()=>{
         const model = getModel();
-        const keyReady = await ensureApiKeyForModel(model);
-        if (!keyReady) { el.stat.innerText = "準備完了"; return; }
+        const result = await ensureApiKeyForModel(model, false);
+        if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
+        const useModel = result.model;
         isAppendMode=false;
         el.stat.innerText="再分析中...";
         abortController = new AbortController();
         try{ const r=await csrfFetch('/reanalyze',{
             method:'POST',
             headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({thinking_level:el.think.value,model:model,allow_rephrase_correction:el.rephrase && el.rephrase.checked,allow_filler_removal:el.filler && el.filler.checked}),
+            body:JSON.stringify({thinking_level:el.think.value,model:useModel,allow_rephrase_correction:el.rephrase && el.rephrase.checked,allow_filler_removal:el.filler && el.filler.checked}),
             signal: abortController.signal
         });
         if(!r.ok){ showToast("エラー",true); return; } await handleStreamResponse(r); }catch(e){ if(e.name!=='AbortError') showToast("失敗",true); }

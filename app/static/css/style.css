@@ -337,3 +337,10 @@ html[data-theme="electronic"] .api-key-modal-header .btn-close {
     margin-top: 6px;
     display: none;
 }
+.api-key-modal .model-option {
+    width: 100%;
+    text-align: start;
+}
+#akViewDiscard .api-key-modal-footer {
+    justify-content: space-between;
+}
