@@ -344,3 +344,10 @@ html[data-theme="electronic"] .api-key-modal-header .btn-close {
 #akViewDiscard .api-key-modal-footer {
     justify-content: space-between;
 }
+.ak-animate-in {
+    animation: akFadeSlideIn 0.25s ease forwards;
+}
+@keyframes akFadeSlideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
