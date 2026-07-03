@@ -40,6 +40,18 @@ login_manager.login_view = 'welcome'
 
 fernet = Fernet(os.getenv('ENCRYPTION_KEY').encode())
 
+# Run database migration for new columns at module load (needed for Gunicorn)
+with app.app_context():
+    try:
+        inspector = inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('user')]
+        if 'encrypted_xai_api_key' not in columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN encrypted_xai_api_key TEXT NULL'))
+            db.session.commit()
+            logger.info("Database migration: Added encrypted_xai_api_key column to user table")
+    except Exception as e:
+        logger.error(f"Database migration error: {e}")
+
 # --- Redis Client ---
 import redis as redis_module
 redis_client = redis_module.Redis(host='127.0.0.1', port=6379, decode_responses=True)
@@ -1469,19 +1481,6 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
         update_task(task_id, status='error', error='xAI STT処理中にエラーが発生しました')
 
 
-def migrate_database():
-    try:
-        with app.app_context():
-            inspector = inspect(db.engine)
-            columns = [col['name'] for col in inspector.get_columns('user')]
-            if 'encrypted_xai_api_key' not in columns:
-                db.session.execute(db.text('ALTER TABLE user ADD COLUMN encrypted_xai_api_key TEXT NULL'))
-                db.session.commit()
-                logger.info("Database migration: Added encrypted_xai_api_key column to user table")
-    except Exception as e:
-        logger.error(f"Database migration error: {e}")
-
-
 # --- Task Recovery APIs (Redis-backed) ---
 TASK_EXEMPT_ENDPOINTS = {'api.task_stream'}
 
@@ -1524,7 +1523,6 @@ def task_stream(task_id):
     return create_stream_response(stream_task_updates(task_id))
 
 if __name__ == '__main__':
-    migrate_database()
     with app.app_context():
         db.create_all()
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
