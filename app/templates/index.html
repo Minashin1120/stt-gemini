@@ -497,9 +497,17 @@ function getApiKeyType(model) {
 }
 
 function showView(viewId) {
-    document.getElementById('akViewInput').style.display = viewId === 'akViewInput' ? '' : 'none';
-    document.getElementById('akViewSwitch').style.display = viewId === 'akViewSwitch' ? '' : 'none';
-    document.getElementById('akViewDiscard').style.display = viewId === 'akViewDiscard' ? '' : 'none';
+    ['akViewInput', 'akViewSwitch', 'akViewDiscard'].forEach(id => {
+        const el = document.getElementById(id);
+        if (id === viewId) {
+            el.style.display = '';
+            el.classList.remove('ak-animate-in');
+            void el.offsetWidth;
+            el.classList.add('ak-animate-in');
+        } else {
+            el.style.display = 'none';
+        }
+    });
 }
 
 function showApiKeyModal(keyType, model) {
