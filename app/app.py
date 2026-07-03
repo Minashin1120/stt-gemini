@@ -676,6 +676,34 @@ def settings():
     xai_api_key_value = current_user.get_xai_api_key() or ''
     return render_template('settings.html', has_key=current_user.encrypted_api_key is not None, api_key=api_key_value, has_xai_key=current_user.encrypted_xai_api_key is not None, xai_api_key=xai_api_key_value)
 
+@app.route('/api/check_api_key', methods=['POST'])
+@login_required
+def check_api_key():
+    data = request.get_json(silent=True) or {}
+    model = data.get('model', '')
+    if model == 'grok-stt':
+        has_key = current_user.encrypted_xai_api_key is not None
+    else:
+        has_key = current_user.encrypted_api_key is not None
+    return jsonify({'has_key': has_key})
+
+@app.route('/api/save_api_key', methods=['POST'])
+@login_required
+def save_api_key():
+    data = request.get_json(silent=True) or {}
+    key_type = data.get('type')
+    api_key = data.get('api_key', '').strip()
+    if not api_key:
+        return jsonify({'error': 'APIキーを入力してください'}), 400
+    if key_type == 'xai':
+        current_user.set_xai_api_key(api_key)
+        flash('xAI APIキーを保存しました。')
+    else:
+        current_user.set_api_key(api_key)
+        flash('Gemini APIキーを保存しました。')
+    db.session.commit()
+    return jsonify({'success': True})
+
 @app.route('/api/delete_account', methods=['POST'])
 @login_required
 def delete_account():

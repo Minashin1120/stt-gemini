@@ -228,6 +228,24 @@
     </div>
 </div>
 
+<div class="api-key-overlay" id="apiKeyOverlay">
+    <div class="api-key-modal">
+        <div class="api-key-modal-header">
+            <span id="apiKeyModalTitle">APIキーの設定</span>
+            <button type="button" class="btn-close" id="btnCloseApiKeyModal"></button>
+        </div>
+        <div class="api-key-modal-body">
+            <p id="apiKeyModalMessage">選択中のモデルを使用するにはAPIキーが必要です。</p>
+            <input type="password" id="apiKeyInputModal" class="form-control" placeholder="APIキーを入力してください">
+            <div class="api-key-modal-error" id="apiKeyModalError"></div>
+        </div>
+        <div class="api-key-modal-footer">
+            <button id="btnSwitchModel" class="btn btn-outline-secondary">別のモデルを選択</button>
+            <button id="btnSaveApiKey" class="btn btn-primary">保存して送信</button>
+        </div>
+    </div>
+</div>
+
 <script>
 // --- Global Utilities ---
 function showToast(m, e=false) {
@@ -433,6 +451,133 @@ function updateWordSetButtonText(sets) {
         btn.classList.remove('btn-primary', 'text-white');
         btn.classList.add('btn-outline-primary');
     }
+}
+
+// --- API Key Modal ---
+let _resolveApiKeyPrompt = null;
+let _rejectApiKeyPrompt = null;
+
+function getApiKeyType(model) {
+    return model === 'grok-stt' ? 'xai' : 'gemini';
+}
+
+function showApiKeyModal(keyType, model) {
+    const overlay = document.getElementById('apiKeyOverlay');
+    const titleEl = document.getElementById('apiKeyModalTitle');
+    const msgEl = document.getElementById('apiKeyModalMessage');
+    const inputEl = document.getElementById('apiKeyInputModal');
+    const errorEl = document.getElementById('apiKeyModalError');
+    const saveBtn = document.getElementById('btnSaveApiKey');
+
+    errorEl.style.display = 'none';
+    inputEl.value = '';
+    inputEl.focus();
+
+    if (keyType === 'xai') {
+        titleEl.textContent = 'xAI (Grok) APIキーの設定';
+        msgEl.textContent = 'Grok STT モデルを使用するには xAI API キーが必要です。';
+        inputEl.placeholder = 'xai-...';
+    } else {
+        titleEl.textContent = 'Gemini APIキーの設定';
+        msgEl.textContent = 'Gemini モデルを使用するには Gemini API キーが必要です。';
+        inputEl.placeholder = 'AIzaSy...';
+    }
+
+    // Enter key support
+    inputEl.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveBtn.click();
+        }
+    };
+
+    // Save button
+    saveBtn.onclick = async () => {
+        const apiKey = inputEl.value.trim();
+        if (!apiKey) {
+            errorEl.textContent = 'APIキーを入力してください';
+            errorEl.style.display = 'block';
+            return;
+        }
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中...';
+        try {
+            const r = await csrfFetch('/api/save_api_key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: keyType, api_key: apiKey })
+            });
+            const data = await r.json();
+            if (!r.ok) {
+                errorEl.textContent = data.error || '保存に失敗しました';
+                errorEl.style.display = 'block';
+                saveBtn.disabled = false;
+                saveBtn.textContent = '保存して送信';
+                return;
+            }
+            closeApiKeyModal();
+            if (_resolveApiKeyPrompt) _resolveApiKeyPrompt(true);
+        } catch (e) {
+            errorEl.textContent = '通信エラーが発生しました';
+            errorEl.style.display = 'block';
+            saveBtn.disabled = false;
+            saveBtn.textContent = '保存して送信';
+        }
+    };
+
+    // Switch model button
+    document.getElementById('btnSwitchModel').onclick = () => {
+        closeApiKeyModal();
+        if (_resolveApiKeyPrompt) _resolveApiKeyPrompt(false);
+    };
+
+    // Close button
+    document.getElementById('btnCloseApiKeyModal').onclick = () => {
+        closeApiKeyModal();
+        if (_resolveApiKeyPrompt) _resolveApiKeyPrompt(false);
+    };
+
+    // Click outside to close
+    overlay.onclick = (e) => {
+        if (e.target === overlay) {
+            closeApiKeyModal();
+            if (_resolveApiKeyPrompt) _resolveApiKeyPrompt(false);
+        }
+    };
+
+    // Show with animation
+    overlay.classList.add('show');
+}
+
+function closeApiKeyModal() {
+    const overlay = document.getElementById('apiKeyOverlay');
+    overlay.classList.remove('show');
+    const saveBtn = document.getElementById('btnSaveApiKey');
+    saveBtn.disabled = false;
+    saveBtn.textContent = '保存して送信';
+}
+
+function ensureApiKeyForModel(model) {
+    return new Promise((resolve) => {
+        // Check if key exists
+        csrfFetch('/api/check_api_key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: model })
+        }).then(r => r.json()).then(data => {
+            if (data.has_key) {
+                resolve(true);
+                return;
+            }
+            // Key not set — show modal
+            const keyType = getApiKeyType(model);
+            _resolveApiKeyPrompt = resolve;
+            showApiKeyModal(keyType, model);
+        }).catch(() => {
+            // If check fails, proceed anyway
+            resolve(true);
+        });
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -841,6 +986,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function uploadFileSingle(file, append) {
+        const model = getModel();
+        const keyReady = await ensureApiKeyForModel(model);
+        if (!keyReady) { el.stat.innerText = "準備完了"; return; }
         isAppendMode = append;
         el.stat.innerText = "アップロード中...";
         btnUploadNew.disabled = btnUploadAppend.disabled = true;
@@ -848,7 +996,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fd = new FormData();
         fd.append('audio_file', file);
         fd.append('thinking_level', el.think.value);
-        fd.append('model', getModel());
+        fd.append('model', model);
         fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0');
         fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
         try {
@@ -874,6 +1022,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function uploadFileChunked(file, append) {
+        const model = getModel();
+        const keyReady = await ensureApiKeyForModel(model);
+        if (!keyReady) { btnUploadNew.disabled = btnUploadAppend.disabled = false; el.stat.innerText = "準備完了"; return; }
         isAppendMode = append;
         btnUploadNew.disabled = btnUploadAppend.disabled = true;
         abortController = new AbortController();
@@ -1034,8 +1185,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     async function upl(b,n){
+        const model = getModel();
+        const keyReady = await ensureApiKeyForModel(model);
+        if (!keyReady) { el.stat.innerText = "準備完了"; return; }
         abortController = new AbortController();
-        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', getModel()); fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0'); fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
+        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', model); fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0'); fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
         try{
             const r=await csrfFetch('/transcribe',{
                 method:'POST',
@@ -1053,13 +1207,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     el.re.onclick=async()=>{
+        const model = getModel();
+        const keyReady = await ensureApiKeyForModel(model);
+        if (!keyReady) { el.stat.innerText = "準備完了"; return; }
         isAppendMode=false;
         el.stat.innerText="再分析中...";
         abortController = new AbortController();
         try{ const r=await csrfFetch('/reanalyze',{
             method:'POST',
             headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({thinking_level:el.think.value,model:getModel(),allow_rephrase_correction:el.rephrase && el.rephrase.checked,allow_filler_removal:el.filler && el.filler.checked}),
+            body:JSON.stringify({thinking_level:el.think.value,model:model,allow_rephrase_correction:el.rephrase && el.rephrase.checked,allow_filler_removal:el.filler && el.filler.checked}),
             signal: abortController.signal
         });
         if(!r.ok){ showToast("エラー",true); return; } await handleStreamResponse(r); }catch(e){ if(e.name!=='AbortError') showToast("失敗",true); }

@@ -267,3 +267,73 @@ body {
 .btn-close { filter: invert(var(--invert-icon, 0)); }
 html[data-theme="gaming"] .btn-close,
 html[data-theme="electronic"] .btn-close { filter: invert(1); }
+
+/* =========================================
+   APIキー入力モーダル
+   ========================================= */
+.api-key-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+.api-key-overlay.show {
+    opacity: 1;
+    visibility: visible;
+}
+.api-key-modal {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    width: 90%;
+    max-width: 440px;
+    transform: scale(0.85) translateY(30px);
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    color: var(--text-color);
+}
+.api-key-overlay.show .api-key-modal {
+    transform: scale(1) translateY(0);
+}
+.api-key-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px 0;
+    font-weight: bold;
+    font-size: 1.1rem;
+}
+.api-key-modal-header .btn-close {
+    filter: var(--invert-icon, none);
+}
+html[data-theme="gaming"] .api-key-modal-header .btn-close,
+html[data-theme="electronic"] .api-key-modal-header .btn-close {
+    filter: invert(1);
+}
+.api-key-modal-body {
+    padding: 16px 20px;
+}
+.api-key-modal-body p {
+    margin-bottom: 12px;
+    font-size: 0.9rem;
+    color: var(--text-color);
+    opacity: 0.8;
+}
+.api-key-modal-footer {
+    padding: 0 20px 18px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+.api-key-modal-error {
+    color: #dc3545;
+    font-size: 0.8rem;
+    margin-top: 6px;
+    display: none;
+}
