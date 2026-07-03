@@ -676,6 +676,14 @@ def settings():
     xai_api_key_value = current_user.get_xai_api_key() or ''
     return render_template('settings.html', has_key=current_user.encrypted_api_key is not None, api_key=api_key_value, has_xai_key=current_user.encrypted_xai_api_key is not None, xai_api_key=xai_api_key_value)
 
+@app.route('/api/check_api_keys', methods=['GET'])
+@login_required
+def check_api_keys():
+    return jsonify({
+        'has_gemini_key': current_user.encrypted_api_key is not None,
+        'has_xai_key': current_user.encrypted_xai_api_key is not None
+    })
+
 @app.route('/api/check_api_key', methods=['POST'])
 @login_required
 def check_api_key():
