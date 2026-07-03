@@ -50,7 +50,9 @@ with app.app_context():
             db.session.commit()
             logger.info("Database migration: Added encrypted_xai_api_key column to user table")
     except Exception as e:
-        logger.error(f"Database migration error: {e}")
+        # Gunicorn multi-worker 環境では競合が発生し得るが無害
+        if 'Duplicate column' not in str(e):
+            logger.error(f"Database migration error: {e}")
 
 # --- Redis Client ---
 import redis as redis_module
