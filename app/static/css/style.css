@@ -269,12 +269,12 @@ html[data-theme="gaming"] .btn-close,
 html[data-theme="electronic"] .btn-close { filter: invert(1); }
 
 /* =========================================
-   APIキー入力モーダル
+   APIキー入力モーダル (Liquid Glass)
    ========================================= */
 .api-key-overlay {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.5);
+    background: rgba(0,0,0,0.3);
     z-index: 3000;
     display: flex;
     align-items: center;
@@ -282,68 +282,258 @@ html[data-theme="electronic"] .btn-close { filter: invert(1); }
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.3s ease, visibility 0.3s ease;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
 }
 .api-key-overlay.show {
     opacity: 1;
     visibility: visible;
 }
+
 .api-key-modal {
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: 16px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     width: 90%;
     max-width: 440px;
+    border-radius: 20px;
     transform: scale(0.85) translateY(30px);
-    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
     color: var(--text-color);
+
+    /* Liquid Glass core */
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(24px) saturate(180%) contrast(110%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%) contrast(110%);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow:
+        0 8px 40px rgba(0, 0, 0, 0.08),
+        0 2px 8px rgba(0, 0, 0, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 .api-key-overlay.show .api-key-modal {
     transform: scale(1) translateY(0);
 }
+
+/* Dark theme Liquid Glass overrides */
+html[data-theme="gaming"] .api-key-modal,
+html[data-theme="electronic"] .api-key-modal {
+    background: rgba(12, 16, 20, 0.78);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+        0 8px 40px rgba(0, 0, 0, 0.4),
+        0 2px 8px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
 .api-key-modal-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 18px 20px 0;
-    font-weight: bold;
-    font-size: 1.1rem;
+    padding: 20px 22px 0;
+    font-weight: 600;
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
 }
 .api-key-modal-header .btn-close {
     filter: var(--invert-icon, none);
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.api-key-modal-header .btn-close:hover {
+    opacity: 1;
 }
 html[data-theme="gaming"] .api-key-modal-header .btn-close,
 html[data-theme="electronic"] .api-key-modal-header .btn-close {
     filter: invert(1);
 }
+
 .api-key-modal-body {
-    padding: 16px 20px;
+    padding: 14px 22px;
 }
 .api-key-modal-body p {
-    margin-bottom: 12px;
-    font-size: 0.9rem;
+    margin-bottom: 14px;
+    font-size: 0.88rem;
     color: var(--text-color);
-    opacity: 0.8;
+    opacity: 0.75;
+    line-height: 1.45;
 }
+
+/* Glass input inside modal */
+#akInput {
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 0.95rem;
+    color: var(--text-color);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+#akInput:focus {
+    border-color: rgba(255, 255, 255, 0.6);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.6);
+}
+html[data-theme="gaming"] #akInput,
+html[data-theme="electronic"] #akInput {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-color);
+}
+html[data-theme="gaming"] #akInput:focus,
+html[data-theme="electronic"] #akInput:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(0, 255, 204, 0.15);
+    background: rgba(255, 255, 255, 0.1);
+}
+
 .api-key-modal-footer {
-    padding: 0 20px 18px;
+    padding: 0 22px 20px;
     display: flex;
     gap: 8px;
     justify-content: flex-end;
 }
+.api-key-modal-footer .btn {
+    border-radius: 12px;
+    padding: 8px 18px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+}
+.api-key-modal-footer .btn:active {
+    transform: scale(0.97);
+}
+#akBtnSave {
+    background: linear-gradient(135deg, #007aff, #0051d5);
+    border: none;
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(0, 122, 255, 0.3);
+}
+#akBtnSave:hover {
+    box-shadow: 0 4px 20px rgba(0, 122, 255, 0.4);
+    transform: translateY(-1px);
+}
+#akBtnSave:active {
+    transform: scale(0.97) translateY(0);
+}
+#akBtnSwitch,
+#akBtnBackSwitch,
+#akBtnBackDiscard,
+#akBtnConfirmDiscard {
+    background: rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--text-color);
+}
+#akBtnSwitch:hover,
+#akBtnBackSwitch:hover,
+#akBtnBackDiscard:hover {
+    background: rgba(255, 255, 255, 0.45);
+}
+#akBtnConfirmDiscard {
+    background: rgba(255, 59, 48, 0.2);
+    border-color: rgba(255, 59, 48, 0.3);
+    color: #ff3b30;
+}
+#akBtnConfirmDiscard:hover {
+    background: rgba(255, 59, 48, 0.35);
+}
+/* Dark theme button overrides */
+html[data-theme="gaming"] #akBtnSwitch,
+html[data-theme="gaming"] #akBtnBackSwitch,
+html[data-theme="gaming"] #akBtnBackDiscard,
+html[data-theme="electronic"] #akBtnSwitch,
+html[data-theme="electronic"] #akBtnBackSwitch,
+html[data-theme="electronic"] #akBtnBackDiscard {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+html[data-theme="gaming"] #akBtnSwitch:hover,
+html[data-theme="gaming"] #akBtnBackSwitch:hover,
+html[data-theme="gaming"] #akBtnBackDiscard:hover,
+html[data-theme="electronic"] #akBtnSwitch:hover,
+html[data-theme="electronic"] #akBtnBackSwitch:hover,
+html[data-theme="electronic"] #akBtnBackDiscard:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+html[data-theme="gaming"] #akBtnSave {
+    background: linear-gradient(135deg, #00ffcc, #00997a);
+    box-shadow: 0 2px 12px rgba(0, 255, 204, 0.25);
+    color: #000;
+}
+html[data-theme="gaming"] #akBtnSave:hover {
+    box-shadow: 0 4px 20px rgba(0, 255, 204, 0.35);
+}
+
 .api-key-modal-error {
-    color: #dc3545;
+    color: #ff3b30;
     font-size: 0.8rem;
-    margin-top: 6px;
+    margin-top: 8px;
     display: none;
 }
+
+/* Model options (Liquid Glass style) */
 .api-key-modal .model-option {
     width: 100%;
     text-align: start;
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 0.92rem;
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-color);
+    transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
 }
+.api-key-modal .model-option:hover {
+    background: rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+.api-key-modal .model-option:active {
+    transform: scale(0.98);
+}
+html[data-theme="gaming"] .api-key-modal .model-option,
+html[data-theme="electronic"] .api-key-modal .model-option {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="gaming"] .api-key-modal .model-option:hover,
+html[data-theme="electronic"] .api-key-modal .model-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Discard view download button */
+#akBtnDownload {
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-size: 0.88rem;
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-color);
+    transition: transform 0.2s, background 0.2s;
+}
+#akBtnDownload:hover {
+    background: rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px);
+}
+html[data-theme="gaming"] #akBtnDownload,
+html[data-theme="electronic"] #akBtnDownload {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="gaming"] #akBtnDownload:hover,
+html[data-theme="electronic"] #akBtnDownload:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
 #akViewDiscard .api-key-modal-footer {
     justify-content: space-between;
 }
+
 .ak-animate-in {
     animation: akFadeSlideIn 0.25s ease forwards;
 }
