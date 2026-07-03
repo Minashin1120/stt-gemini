@@ -27,7 +27,10 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI')
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MBまで単一アップロード、超えると分割
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=31)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=1)
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 db = SQLAlchemy(app)
 login_manager = LoginManager()
@@ -39,6 +42,15 @@ fernet = Fernet(os.getenv('ENCRYPTION_KEY').encode())
 # --- Redis Client ---
 import redis as redis_module
 redis_client = redis_module.Redis(host='127.0.0.1', port=6379, decode_responses=True)
+
+ALLOWED_MODELS = {
+    'gemini-3.5-flash',
+    'gemini-3-flash-preview',
+    'gemini-3.1-flash-lite',
+}
+
+def validate_model(model_name):
+    return model_name if model_name in ALLOWED_MODELS else 'gemini-3.5-flash'
 
 # --- Task Management (Redis-backed for crash recovery) ---
 TASK_TTL = 86400  # 24h
@@ -77,6 +89,18 @@ def delete_task(task_id):
         if uid:
             redis_client.srem(f"user:{uid}:tasks", task_id)
         redis_client.delete(f"task:{task_id}")
+
+def check_rate_limit(key_prefix, max_requests, window_seconds):
+    client_ip = request.remote_addr or '0.0.0.0'
+    redis_key = f"ratelimit:{key_prefix}:{client_ip}"
+    current = redis_client.get(redis_key)
+    if current and int(current) >= max_requests:
+        return False
+    pipe = redis_client.pipeline()
+    pipe.incr(redis_key)
+    pipe.expire(redis_key, window_seconds)
+    pipe.execute()
+    return True
 
 CSRF_EXEMPT_ENDPOINTS = {
     'static',
@@ -225,7 +249,7 @@ def notify_admin_unlock(username):
         process = subprocess.Popen(['/usr/sbin/sendmail', '-t', '-oi'], stdin=subprocess.PIPE)
         process.communicate(msg.as_bytes())
     except Exception as e:
-        print(f"Exim4 email notification failed: {e}")
+        logger.error(f"Exim4 email notification failed: {e}")
 
 @app.context_processor
 def inject_site_keys():
@@ -298,7 +322,7 @@ def cleanup_old_data():
                                     if os.path.isfile(f_path) and os.stat(f_path).st_mtime < now_ts - retention_seconds:
                                         os.remove(f_path)
                                 except Exception as file_err:
-                                    print(f"File removal error: {file_err}")
+                                    logger.warning(f"File removal error: {file_err}")
                 
                 db.session.commit()
                 
@@ -311,9 +335,9 @@ def cleanup_old_data():
                             if os.path.isdir(d_path) and os.stat(d_path).st_mtime < now_ts - 3600:
                                 shutil.rmtree(d_path, ignore_errors=True)
                         except Exception as chunk_err:
-                            print(f"Chunk cleanup error: {chunk_err}")
+                            logger.warning(f"Chunk cleanup error: {chunk_err}")
         except Exception as e:
-            print(f"Cleanup error: {e}")
+            logger.error(f"Cleanup error: {e}")
             try: db.session.rollback()
             except: pass
         time.sleep(60)
@@ -389,7 +413,7 @@ def save_history(user_id, action_type, input_summary, thought, result):
             db.session.add(new_h)
             db.session.commit()
     except Exception as e:
-        print(f"History save error: {e}")
+        logger.error(f"History save error: {e}")
 
 # --- Routes ---
 @app.route('/favicon.ico')
@@ -408,7 +432,9 @@ def index():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        # Turnstile Check
+        if not check_rate_limit('register', 3, 60):
+            flash('試行回数が多すぎます。しばらく経ってから再度お試しください。')
+            return redirect(url_for('register'))
         turnstile_token = request.form.get('cf-turnstile-response')
         if not verify_turnstile(turnstile_token):
             flash('ロボットではないことを証明してください。')
@@ -427,6 +453,12 @@ def register():
         
         username = request.form.get('username')
         password = request.form.get('password')
+        if not username or len(username) < 2:
+            flash('ユーザー名は2文字以上で入力してください。')
+            return redirect(url_for('register'))
+        if not password or len(password) < 8:
+            flash('パスワードは8文字以上で入力してください。')
+            return redirect(url_for('register'))
         if User.query.filter_by(username=username).first():
             flash('ユーザー名が重複しています。')
             return redirect(url_for('register'))
@@ -480,7 +512,7 @@ def is_atypical_client(req):
         
         # JSONリクエストの場合も考慮
         if not js_challenge and req.is_json:
-            js_challenge = req.get_json(silent=True).get('_js_challenge')
+            js_challenge = (req.get_json(silent=True) or {}).get('_js_challenge')
             
         csrf_token = session.get('csrf_token')
         # Expecting 'valid_<csrf_token>' set by client-side JS
@@ -498,7 +530,9 @@ def is_atypical_client(req):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        # Turnstile Check
+        if not check_rate_limit('login', 5, 60):
+            flash('試行回数が多すぎます。しばらく経ってから再度お試しください。')
+            return redirect(url_for('login'))
         turnstile_token = request.form.get('cf-turnstile-response')
         if not verify_turnstile(turnstile_token):
             flash('ロボットではないことを証明してください。')
@@ -547,7 +581,9 @@ def login():
 @app.route('/request_unlock', methods=['GET', 'POST'])
 def request_unlock():
     if request.method == 'POST':
-        # Turnstile Check
+        if not check_rate_limit('request_unlock', 3, 60):
+            flash('試行回数が多すぎます。しばらく経ってから再度お試しください。')
+            return redirect(url_for('request_unlock'))
         turnstile_token = request.form.get('cf-turnstile-response')
         if not verify_turnstile(turnstile_token):
             flash('ロボットではないことを証明してください。')
@@ -559,23 +595,12 @@ def request_unlock():
 
         username = request.form.get('username')
         user = User.query.filter_by(username=username).first()
-        if user:
-            if not user.is_locked:
-                flash('このアカウントはロックされていません。')
-                return redirect(url_for('login'))
-            
-            if user.unlock_requested:
-                flash('解除申請は既に送信済みです。管理者の対応をお待ちください。')
-                return redirect(url_for('login'))
-            
+        if user and user.is_locked and not user.unlock_requested:
             user.unlock_requested = True
             db.session.commit()
             notify_admin_unlock(username)
-            flash('解除申請を送信しました。管理者の対応をお待ちください。')
-            return redirect(url_for('login'))
-        
-        flash('ユーザーが見つかりません。')
-        return redirect(url_for('request_unlock'))
+        flash('申請を受け付けました。ロック解除対象となる場合、管理者が対応します。')
+        return redirect(url_for('login'))
 
     return render_template('request_unlock.html')
 
@@ -608,7 +633,6 @@ def settings():
                     flash('保存期間は1〜1440分の範囲で指定してください。')
                 else:
                     current_user.retention_minutes = retention_value
-                    db.session.commit()
                     flash('保存期間の設定を更新しました。')
             except ValueError:
                 flash('保存期間には数値を入力してください。')
@@ -914,7 +938,7 @@ def transcribe():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": request.form.get('thinking_level', 'LOW').upper()}}
     }
     
-    model = request.form.get('model', 'gemini-3.5-flash')
+    model = validate_model(request.form.get('model', 'gemini-3.5-flash'))
     
     task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
     thread = threading.Thread(
@@ -962,7 +986,7 @@ def reanalyze():
         ]}],
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
     }
-    model = data.get('model', 'gemini-3.5-flash')
+    model = validate_model(data.get('model', 'gemini-3.5-flash'))
     task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
     thread = threading.Thread(
         target=process_gemini_background,
@@ -1019,7 +1043,7 @@ def improve():
         "contents": [{"parts": parts}],
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
     }
-    model = data.get('model', 'gemini-3.5-flash')
+    model = validate_model(data.get('model', 'gemini-3.5-flash'))
     task_id = create_task(current_user.id, "improve", instruction, model)
     thread = threading.Thread(
         target=process_gemini_background,
@@ -1044,7 +1068,7 @@ def delete_audio():
             except FileNotFoundError:
                 pass
             except Exception as e:
-                print(f"delete_audio error: {e}")
+                logger.error(f"delete_audio error: {e}")
                 return jsonify({'error': '削除に失敗しました'}), 500
         session.pop('last_audio_file', None)
         session.pop('last_audio_mime', None)
@@ -1187,7 +1211,7 @@ def upload_complete():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": request.form.get('thinking_level', 'LOW').upper()}}
     }
 
-    model = request.form.get('model', 'gemini-3.5-flash')
+    model = validate_model(request.form.get('model', 'gemini-3.5-flash'))
 
     task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
     thread = threading.Thread(
@@ -1209,7 +1233,7 @@ def delete_specific_file(filename):
         except FileNotFoundError:
             pass
         except Exception as e:
-            print(f"delete_specific_file error: {e}")
+            logger.error(f"delete_specific_file error: {e}")
             return jsonify({'error': '削除に失敗しました'}), 500
         if session.get('last_audio_file') == filename:
             session.pop('last_audio_file', None)
