@@ -162,6 +162,8 @@
                             <label class="btn btn-outline-primary btn-sm" for="mdl_flash3">3.0 Flash</label>
                             <input type="radio" class="btn-check" name="model_select" id="mdl_flash31lite" value="gemini-3.1-flash-lite">
                             <label class="btn btn-outline-primary btn-sm" for="mdl_flash31lite">3.1 Flash-Lite</label>
+                            <input type="radio" class="btn-check" name="model_select" id="mdl_grok_stt" value="grok-stt">
+                            <label class="btn btn-outline-primary btn-sm" for="mdl_grok_stt">Grok STT</label>
                         </div>
                     </div>
                     <div class="col-md-6 text-start">
@@ -493,13 +495,36 @@ document.addEventListener('DOMContentLoaded', () => {
     if(fillerSaved!==null && el.filler) el.filler.checked=(fillerSaved==='true');
     if(f) { const r = document.querySelector(`input[name="format"][value="${f}"]`); if(r) r.checked=true; }
     if(m) { const r = document.querySelector(`input[name="model_select"][value="${m}"]`); if(r) r.checked=true; }
+    // Grok STTが初期選択されている場合、推論レベルを無効化
+    if (getModel() === 'grok-stt') {
+        el.think.disabled = true;
+        el.think.title = 'Grok STTでは推論レベルは使用されません';
+        const thinkingEl = document.getElementById('collapseThinking');
+        if (thinkingEl && thinkingEl.classList.contains('show')) {
+            thoughtCol.hide();
+        }
+    }
     
     el.think.addEventListener('change', saveSet);
     if(el.noise) el.noise.addEventListener('change', saveSet);
     if(el.rephrase) el.rephrase.addEventListener('change', saveSet);
     if(el.filler) el.filler.addEventListener('change', saveSet);
     document.querySelectorAll('input[name="format"]').forEach(r=>r.addEventListener('change', saveSet));
-    document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', saveSet));
+    document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', (e) => {
+        saveSet();
+        // Grok STT選択時は思考プロセスアコーディオンを非表示にする
+        if (e.target.value === 'grok-stt' && e.target.checked) {
+            const thinkingEl = document.getElementById('collapseThinking');
+            if (thinkingEl && thinkingEl.classList.contains('show')) {
+                thoughtCol.hide();
+            }
+            el.think.disabled = true;
+            el.think.title = 'Grok STTでは推論レベルは使用されません';
+        } else {
+            el.think.disabled = false;
+            el.think.title = '';
+        }
+    }));
     
     loadHistory(); 
     loadWordSetStatus();
@@ -740,7 +765,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         else { let cur=el.res.value.trim(); initText=cur?cur+"\n\n":""; el.res.value=initText; }
         
-        if(el.think.value!=='MINIMAL') thoughtCol.show();
+        if(el.think.value!=='MINIMAL' && getModel()!=='grok-stt') thoughtCol.show();
         el.abort.classList.remove('d-none');
 
         let stT="";
@@ -789,10 +814,12 @@ document.addEventListener('DOMContentLoaded', () => {
             el.copy.disabled=el.re.disabled=el.delBtn.disabled=false;
             showToast("完了");
             loadHistory();
-            // Flash-Lite は LOW/MEDIUM で thought を返さないのでヒント表示
+            // モデル別のヒント表示
             const _mdl = getModel();
             const _lvl = el.think.value;
-            if (_mdl === 'gemini-3.1-flash-lite' && (_lvl === 'LOW' || _lvl === 'MEDIUM') && !el.tho.innerText.trim()) {
+            if (_mdl === 'grok-stt') {
+                el.tho.innerText = '[Grok STT は思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
+            } else if (_mdl === 'gemini-3.1-flash-lite' && (_lvl === 'LOW' || _lvl === 'MEDIUM') && !el.tho.innerText.trim()) {
                 el.tho.innerText = '[Flash-Lite は LOW/MEDIUM 設定時に思考プロセスを返しません。表示するには HIGH を選択してください。]';
             }
         }

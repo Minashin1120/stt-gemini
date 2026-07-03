@@ -15,6 +15,7 @@ from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+from sqlalchemy import inspect
 
 load_dotenv()
 
@@ -47,6 +48,7 @@ ALLOWED_MODELS = {
     'gemini-3.5-flash',
     'gemini-3-flash-preview',
     'gemini-3.1-flash-lite',
+    'grok-stt',
 }
 
 def validate_model(model_name):
@@ -175,6 +177,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(150), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
     encrypted_api_key = db.Column(db.Text, nullable=True)
+    encrypted_xai_api_key = db.Column(db.Text, nullable=True)
     retention_minutes = db.Column(db.Integer, default=10, nullable=False)
     is_locked = db.Column(db.Boolean, default=False)
     unlock_requested = db.Column(db.Boolean, default=False)
@@ -188,6 +191,18 @@ class User(UserMixin, db.Model):
     def get_api_key(self):
         if self.encrypted_api_key:
             try: return fernet.decrypt(self.encrypted_api_key.encode()).decode()
+            except: return None
+        return None
+
+    def set_xai_api_key(self, api_key):
+        if api_key:
+            self.encrypted_xai_api_key = fernet.encrypt(api_key.encode()).decode()
+        else:
+            self.encrypted_xai_api_key = None
+
+    def get_xai_api_key(self):
+        if self.encrypted_xai_api_key:
+            try: return fernet.decrypt(self.encrypted_xai_api_key.encode()).decode()
             except: return None
         return None
 
@@ -620,11 +635,16 @@ def settings():
             return redirect(url_for('settings'))
 
         api_key = request.form.get('api_key')
+        xai_api_key = request.form.get('xai_api_key')
         retention_minutes = request.form.get('retention_minutes')
         
         if api_key:
             current_user.set_api_key(api_key)
-            flash('APIキーを保存しました。')
+            flash('Gemini APIキーを保存しました。')
+        
+        if xai_api_key:
+            current_user.set_xai_api_key(xai_api_key)
+            flash('xAI APIキーを保存しました。')
         
         if retention_minutes is not None:
             try:
@@ -639,7 +659,8 @@ def settings():
         
         db.session.commit()
     api_key_value = current_user.get_api_key() or ''
-    return render_template('settings.html', has_key=current_user.encrypted_api_key is not None, api_key=api_key_value)
+    xai_api_key_value = current_user.get_xai_api_key() or ''
+    return render_template('settings.html', has_key=current_user.encrypted_api_key is not None, api_key=api_key_value, has_xai_key=current_user.encrypted_xai_api_key is not None, xai_api_key=xai_api_key_value)
 
 @app.route('/api/delete_account', methods=['POST'])
 @login_required
@@ -895,8 +916,7 @@ def build_transcription_prompt(history_context, word_list_context, mode_label, a
 @app.route('/transcribe', methods=['POST'])
 @login_required
 def transcribe():
-    api_key = current_user.get_api_key()
-    if not api_key: return jsonify({'error': 'API Key not set'}), 400
+    model = validate_model(request.form.get('model', 'gemini-3.5-flash'))
     
     file = request.files.get('audio_file')
     if not file: return jsonify({'error': 'No file'}), 400
@@ -912,6 +932,23 @@ def transcribe():
     file.save(filepath)
     session['last_audio_file'] = filename
     session['last_audio_mime'] = mime_type
+
+    if model == 'grok-stt':
+        api_key = current_user.get_xai_api_key()
+        if not api_key: return jsonify({'error': 'xAI API Key not set. Go to Settings to configure it.'}), 400
+        
+        task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
+        thread = threading.Thread(
+            target=process_grok_stt_background,
+            args=(task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
+        )
+        thread.daemon = True
+        thread.start()
+        return create_stream_response(stream_task_updates(task_id))
+    
+    # Gemini path
+    api_key = current_user.get_api_key()
+    if not api_key: return jsonify({'error': 'API Key not set'}), 400
     
     with open(filepath, "rb") as f:
         audio_b64 = base64.b64encode(f.read()).decode('utf-8')
@@ -938,8 +975,6 @@ def transcribe():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": request.form.get('thinking_level', 'LOW').upper()}}
     }
     
-    model = validate_model(request.form.get('model', 'gemini-3.5-flash'))
-    
     task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
     thread = threading.Thread(
         target=process_gemini_background,
@@ -952,19 +987,37 @@ def transcribe():
 @app.route('/reanalyze', methods=['POST'])
 @login_required
 def reanalyze():
-    api_key, filename = current_user.get_api_key(), session.get('last_audio_file')
-    if not api_key or not filename: return jsonify({'error': 'ファイルなし'}), 400
+    data = request.get_json(silent=True) or {}
+    model = validate_model(data.get('model', 'gemini-3.5-flash'))
+    
+    filename = session.get('last_audio_file')
+    if not filename: return jsonify({'error': 'ファイルなし'}), 400
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     if not os.path.exists(filepath): return jsonify({'error': '期限切れ'}), 400
-    data = request.get_json(silent=True) or {}
-    allow_rephrase_correction = is_truthy(data.get('allow_rephrase_correction'))
-    allow_filler_removal = is_truthy(data.get('allow_filler_removal'))
+
+    if model == 'grok-stt':
+        api_key = current_user.get_xai_api_key()
+        if not api_key: return jsonify({'error': 'xAI API Key not set'}), 400
+        
+        task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
+        thread = threading.Thread(
+            target=process_grok_stt_background,
+            args=(task_id, api_key, filepath, current_user.id, "reanalyze", "Re-analysis Request")
+        )
+        thread.daemon = True
+        thread.start()
+        return create_stream_response(stream_task_updates(task_id))
+    
+    api_key = current_user.get_api_key()
+    if not api_key: return jsonify({'error': 'API Key not set'}), 400
     
     with open(filepath, "rb") as f:
         audio_b64 = base64.b64encode(f.read()).decode('utf-8')
     
     history_context = get_active_history_context(current_user.id)
     word_list_context = get_word_list_context(current_user.id)
+    allow_rephrase_correction = is_truthy(data.get('allow_rephrase_correction'))
+    allow_filler_removal = is_truthy(data.get('allow_filler_removal'))
     if allow_rephrase_correction:
         base_instruction = REPHRASE_AWARE_INSTRUCTION
         mode_line = "MODE: The user enabled rephrase correction mode for this re-analysis."
@@ -986,7 +1039,6 @@ def reanalyze():
         ]}],
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
     }
-    model = validate_model(data.get('model', 'gemini-3.5-flash'))
     task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
     thread = threading.Thread(
         target=process_gemini_background,
@@ -1044,6 +1096,8 @@ def improve():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
+    if model == 'grok-stt':
+        model = 'gemini-3.5-flash'  # Grok STT cannot do text improvement
     task_id = create_task(current_user.id, "improve", instruction, model)
     thread = threading.Thread(
         target=process_gemini_background,
@@ -1137,9 +1191,7 @@ def upload_chunk():
 @app.route('/api/upload_complete', methods=['POST'])
 @login_required
 def upload_complete():
-    api_key = current_user.get_api_key()
-    if not api_key:
-        return jsonify({'error': 'API Key not set'}), 400
+    model = validate_model(request.form.get('model', 'gemini-3.5-flash'))
 
     upload_id = request.form.get('upload_id')
     total_chunks = request.form.get('total_chunks')
@@ -1188,6 +1240,24 @@ def upload_complete():
     session['last_audio_file'] = filename
     session['last_audio_mime'] = mime_type
 
+    if model == 'grok-stt':
+        api_key = current_user.get_xai_api_key()
+        if not api_key:
+            return jsonify({'error': 'xAI API Key not set. Go to Settings to configure it.'}), 400
+
+        task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
+        thread = threading.Thread(
+            target=process_grok_stt_background,
+            args=(task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
+        )
+        thread.daemon = True
+        thread.start()
+        return create_stream_response(stream_task_updates(task_id))
+
+    api_key = current_user.get_api_key()
+    if not api_key:
+        return jsonify({'error': 'API Key not set'}), 400
+
     with open(filepath, "rb") as f:
         audio_b64 = base64.b64encode(f.read()).decode('utf-8')
 
@@ -1210,8 +1280,6 @@ def upload_complete():
         ]}],
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": request.form.get('thinking_level', 'LOW').upper()}}
     }
-
-    model = validate_model(request.form.get('model', 'gemini-3.5-flash'))
 
     task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
     thread = threading.Thread(
@@ -1320,6 +1388,100 @@ def get_history():
         })
     return jsonify(data)
 
+# --- Grok STT Background Processor ---
+def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary):
+    try:
+        url = "https://api.x.ai/v1/stt"
+
+        with open(audio_filepath, 'rb') as f:
+            content_type_map = {
+                '.mp3': 'audio/mpeg',
+                '.wav': 'audio/wav',
+                '.m4a': 'audio/mp4',
+                '.mp4': 'audio/mp4',
+                '.webm': 'audio/webm',
+                '.ogg': 'audio/ogg',
+                '.opus': 'audio/opus',
+                '.flac': 'audio/flac',
+                '.aac': 'audio/aac',
+                '.mkv': 'audio/x-matroska',
+            }
+            _, ext = os.path.splitext(audio_filepath)
+            mime = content_type_map.get(ext.lower(), 'audio/mpeg')
+            filename = os.path.basename(audio_filepath)
+
+            # Prepare multipart form data (file must be last)
+            files = {'file': (filename, f, mime)}
+
+            response = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                files=files,
+                timeout=(10, 600)
+            )
+
+        if response.status_code == 401:
+            update_task(task_id, status='error', error='xAI APIキーが無効です。設定画面で確認してください。')
+            return
+        elif response.status_code == 413:
+            update_task(task_id, status='error', error='音声ファイルが最大サイズ(500MB)を超えています。')
+            return
+        elif response.status_code == 429:
+            update_task(task_id, status='error', error='xAI APIのレート制限に達しました。時間をおいて再度お試しください。')
+            return
+        elif response.status_code != 200:
+            error_msg = f'xAI STT API Error {response.status_code}'
+            try:
+                err_data = response.json()
+                if 'error' in err_data:
+                    error_msg = f'xAI STT Error: {err_data["error"]}'
+            except:
+                pass
+            update_task(task_id, status='error', error=error_msg)
+            return
+
+        result = response.json()
+        text = result.get('text', '')
+
+        # Apply word replacements server-side (custom vocabulary)
+        try:
+            with app.app_context():
+                word_list_context = get_word_list_context(user_id)
+                if word_list_context:
+                    import re
+                    active_sets = WordSet.query.filter_by(user_id=user_id, is_active=True).all()
+                    for s in active_sets:
+                        for w in s.words:
+                            if w.reading and w.replacement:
+                                text = re.sub(re.escape(w.reading), w.replacement, text, flags=re.IGNORECASE)
+        except Exception as e:
+            logger.warning(f"Word replacement error: {e}")
+
+        update_task(task_id, status='done', thought='', result=text)
+        save_history(user_id, action_type, input_summary, '', text)
+
+    except requests.exceptions.Timeout:
+        update_task(task_id, status='error', error='xAI STT APIへのリクエストがタイムアウトしました。')
+    except requests.exceptions.ConnectionError:
+        update_task(task_id, status='error', error='xAI STT APIへの接続に失敗しました。')
+    except Exception as e:
+        logger.error(f"Grok STT background task {task_id} failed: {e}", exc_info=True)
+        update_task(task_id, status='error', error='xAI STT処理中にエラーが発生しました')
+
+
+def migrate_database():
+    try:
+        with app.app_context():
+            inspector = inspect(db.engine)
+            columns = [col['name'] for col in inspector.get_columns('user')]
+            if 'encrypted_xai_api_key' not in columns:
+                db.session.execute(db.text('ALTER TABLE user ADD COLUMN encrypted_xai_api_key TEXT NULL'))
+                db.session.commit()
+                logger.info("Database migration: Added encrypted_xai_api_key column to user table")
+    except Exception as e:
+        logger.error(f"Database migration error: {e}")
+
+
 # --- Task Recovery APIs (Redis-backed) ---
 TASK_EXEMPT_ENDPOINTS = {'api.task_stream'}
 
@@ -1362,6 +1524,7 @@ def task_stream(task_id):
     return create_stream_response(stream_task_updates(task_id))
 
 if __name__ == '__main__':
+    migrate_database()
     with app.app_context():
         db.create_all()
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
