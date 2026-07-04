@@ -299,14 +299,47 @@ html[data-theme="electronic"] .btn-close { filter: invert(1); }
     color: var(--text-color);
 
     /* Liquid Glass core */
-    background: rgba(255, 255, 255, 0.55);
+    background:
+        /* Pseudo-refraction: warm light concentration at top-left */
+        radial-gradient(ellipse at 25% 15%, rgba(255, 240, 225, 0.18) 0%, transparent 55%),
+        /* Pseudo-refraction: cool light concentration at bottom-right */
+        radial-gradient(ellipse at 75% 85%, rgba(215, 235, 255, 0.12) 0%, transparent 50%),
+        /* Pseudo-refraction: subtle center lensing */
+        radial-gradient(ellipse at 50% 50%, rgba(255, 255, 255, 0.06) 0%, transparent 65%),
+        rgba(255, 255, 255, 0.55);
     backdrop-filter: blur(24px) saturate(180%) contrast(110%);
     -webkit-backdrop-filter: blur(24px) saturate(180%) contrast(110%);
     border: 1px solid rgba(255, 255, 255, 0.4);
     box-shadow:
+        /* Pseudo-refraction: chromatic edge glow (top warm, bottom cool) */
+        inset 0 1px 0 rgba(255, 200, 160, 0.15),
+        inset 0 -1px 0 rgba(160, 200, 255, 0.10),
+        inset 1px 0 0 rgba(255, 220, 180, 0.06),
+        inset -1px 0 0 rgba(180, 210, 255, 0.06),
+        /* Drop shadows */
         0 8px 40px rgba(0, 0, 0, 0.08),
         0 2px 8px rgba(0, 0, 0, 0.04),
+        /* Specular highlight */
         inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Pseudo-refraction: animated light sweep across the glass */
+.api-key-modal::before {
+    content: '';
+    position: absolute;
+    inset: -50%;
+    width: 200%;
+    height: 200%;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(ellipse at var(--ak-glow-x, 30%) var(--ak-glow-y, 20%), rgba(255,255,255,0.08) 0%, transparent 50%);
+    transition: background 0.1s ease;
+}
+.api-key-modal > * {
+    position: relative;
+    z-index: 1;
 }
 .api-key-overlay.show .api-key-modal {
     transform: scale(1) translateY(0);
@@ -315,12 +348,25 @@ html[data-theme="electronic"] .btn-close { filter: invert(1); }
 /* Dark theme Liquid Glass overrides */
 html[data-theme="gaming"] .api-key-modal,
 html[data-theme="electronic"] .api-key-modal {
-    background: rgba(12, 16, 20, 0.78);
+    background:
+        /* Pseudo-refraction: dark mode - subtle cool glow */
+        radial-gradient(ellipse at 25% 15%, rgba(100, 180, 255, 0.06) 0%, transparent 55%),
+        radial-gradient(ellipse at 75% 85%, rgba(180, 100, 255, 0.04) 0%, transparent 50%),
+        rgba(12, 16, 20, 0.78);
     border-color: rgba(255, 255, 255, 0.08);
     box-shadow:
+        /* Pseudo-refraction: subtle chromatic edge in dark mode */
+        inset 0 1px 0 rgba(100, 200, 255, 0.08),
+        inset 0 -1px 0 rgba(200, 100, 255, 0.06),
+        /* Drop shadows */
         0 8px 40px rgba(0, 0, 0, 0.4),
         0 2px 8px rgba(0, 0, 0, 0.2),
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="gaming"] .api-key-modal::before,
+html[data-theme="electronic"] .api-key-modal::before {
+    background: radial-gradient(ellipse at var(--ak-glow-x, 30%) var(--ak-glow-y, 20%), rgba(100, 200, 255, 0.06) 0%, transparent 50%);
 }
 
 .api-key-modal-header {
@@ -358,7 +404,11 @@ html[data-theme="electronic"] .api-key-modal-header .btn-close {
 
 /* Glass input inside modal (Liquid Glass) */
 #akInput {
-    background: rgba(255, 255, 255, 0.35);
+    background:
+        /* Pseudo-refraction: subtle lensing gradient */
+        radial-gradient(ellipse at 30% 40%, rgba(255, 248, 240, 0.12) 0%, transparent 60%),
+        radial-gradient(ellipse at 70% 60%, rgba(235, 245, 255, 0.08) 0%, transparent 50%),
+        rgba(255, 255, 255, 0.35);
     backdrop-filter: blur(20px) saturate(180%) contrast(110%);
     -webkit-backdrop-filter: blur(20px) saturate(180%) contrast(110%);
     border: 1px solid rgba(255, 255, 255, 0.4);
@@ -367,6 +417,9 @@ html[data-theme="electronic"] .api-key-modal-header .btn-close {
     font-size: 0.95rem;
     color: var(--text-color);
     box-shadow:
+        /* Pseudo-refraction: chromatic edge */
+        inset 0 1px 0 rgba(255, 210, 170, 0.12),
+        inset 0 -1px 0 rgba(170, 210, 255, 0.08),
         inset 0 1px 2px rgba(255, 255, 255, 0.4),
         0 2px 8px rgba(0, 0, 0, 0.03);
     transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
@@ -375,24 +428,37 @@ html[data-theme="electronic"] .api-key-modal-header .btn-close {
     border-color: rgba(255, 255, 255, 0.7);
     box-shadow:
         inset 0 1px 2px rgba(255, 255, 255, 0.5),
+        inset 0 0 12px rgba(255, 255, 255, 0.08),
         0 0 0 3px rgba(255, 255, 255, 0.15);
-    background: rgba(255, 255, 255, 0.45);
+    background:
+        radial-gradient(ellipse at 30% 40%, rgba(255, 248, 240, 0.15) 0%, transparent 55%),
+        radial-gradient(ellipse at 70% 60%, rgba(235, 245, 255, 0.10) 0%, transparent 45%),
+        rgba(255, 255, 255, 0.45);
 }
 html[data-theme="gaming"] #akInput,
 html[data-theme="electronic"] #akInput {
-    background: rgba(255, 255, 255, 0.04);
+    background:
+        radial-gradient(ellipse at 30% 40%, rgba(100, 180, 255, 0.05) 0%, transparent 55%),
+        radial-gradient(ellipse at 70% 60%, rgba(180, 100, 255, 0.03) 0%, transparent 50%),
+        rgba(255, 255, 255, 0.04);
     border-color: rgba(255, 255, 255, 0.08);
     color: var(--text-color);
     box-shadow:
+        inset 0 1px 0 rgba(100, 200, 255, 0.06),
+        inset 0 -1px 0 rgba(200, 100, 255, 0.04),
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 html[data-theme="gaming"] #akInput:focus,
 html[data-theme="electronic"] #akInput:focus {
     border-color: var(--primary-color);
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 1px 0 rgba(100, 200, 255, 0.08),
+        inset 0 -1px 0 rgba(200, 100, 255, 0.06),
         0 0 0 3px rgba(0, 255, 204, 0.15);
-    background: rgba(255, 255, 255, 0.08);
+    background:
+        radial-gradient(ellipse at 30% 40%, rgba(100, 180, 255, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 70% 60%, rgba(180, 100, 255, 0.05) 0%, transparent 45%),
+        rgba(255, 255, 255, 0.08);
 }
 
 .api-key-modal-footer {

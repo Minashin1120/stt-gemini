@@ -105,6 +105,23 @@
         const copyXaiBtn = document.getElementById('copyXaiApiKeyBtn');
         const xaiApiKeyInput = document.getElementById('xaiApiKeyInput');
         
+        // Restore saved theme in select
+        const savedTheme = localStorage.getItem('app_theme') || '';
+        if (savedTheme) themeSelect.value = savedTheme;
+
+        // Theme preview on select change
+        themeSelect.addEventListener('change', () => {
+            document.documentElement.setAttribute('data-theme', themeSelect.value);
+        });
+
+        // Save theme to localStorage
+        saveBtn.addEventListener('click', () => {
+            const theme = themeSelect.value;
+            localStorage.setItem('app_theme', theme);
+            document.documentElement.setAttribute('data-theme', theme);
+            showToast('デザインテーマを保存しました');
+        });
+        
         if (copyBtn && apiKeyInput) {
             copyBtn.addEventListener('click', () => {
                 const key = apiKeyInput.value;
