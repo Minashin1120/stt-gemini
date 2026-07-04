@@ -595,6 +595,18 @@ function showApiKeyModal(keyType, model) {
 
     overlay.classList.add('show');
     inputEl.focus();
+
+    // Liquid Glass pseudo-refraction: mouse tracking for dynamic glow
+    const modal = document.querySelector('.api-key-modal');
+    const onMouseMove = (e) => {
+        const rect = modal.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width * 100).toFixed(1);
+        const y = ((e.clientY - rect.top) / rect.height * 100).toFixed(1);
+        modal.style.setProperty('--ak-glow-x', x + '%');
+        modal.style.setProperty('--ak-glow-y', y + '%');
+    };
+    modal._akMouseMove = onMouseMove;
+    overlay.addEventListener('mousemove', onMouseMove);
 }
 
 function handleClose() {
@@ -678,6 +690,11 @@ function closeApiKeyModal() {
     const overlay = document.getElementById('apiKeyOverlay');
     overlay.classList.remove('show');
     overlay.onkeydown = null;
+    const modal = document.querySelector('.api-key-modal');
+    if (modal && modal._akMouseMove) {
+        overlay.removeEventListener('mousemove', modal._akMouseMove);
+        delete modal._akMouseMove;
+    }
     const saveBtn = document.getElementById('akBtnSave');
     saveBtn.disabled = false;
     saveBtn.textContent = '保存して送信';
