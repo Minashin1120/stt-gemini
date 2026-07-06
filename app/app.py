@@ -635,8 +635,8 @@ def request_unlock():
 
 @app.route('/logout')
 def logout():
-    logout_user()
     session.clear()
+    logout_user()
     return redirect(url_for('welcome'))
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -732,8 +732,8 @@ def delete_account():
         db.session.delete(user)
         db.session.commit()
         
-        logout_user()
         session.clear()
+        logout_user()
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
