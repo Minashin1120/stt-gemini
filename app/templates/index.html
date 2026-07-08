@@ -1191,6 +1191,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         fd.append('model', useModel);
         fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0');
         fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
+        fd.append('is_append', append ? '1' : '0');
         try {
             const r = await csrfFetch('/transcribe', { 
                 method: 'POST', 
@@ -1269,6 +1270,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             fd.append('model', useModel);
             fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0');
             fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
+            fd.append('is_append', append ? '1' : '0');
 
             const r = await csrfFetch('/api/upload_complete', {
                 method: 'POST', body: fd, signal: abortController.signal
@@ -1386,7 +1388,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
         const useModel = result.model;
         abortController = new AbortController();
-        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', useModel); fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0'); fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
+        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', useModel); fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0'); fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0'); fd.append('is_append', isAppendMode ? '1' : '0');
         try{
             const r=await csrfFetch('/transcribe',{
                 method:'POST',
