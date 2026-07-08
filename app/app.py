@@ -974,6 +974,21 @@ def transcribe():
     # 受信ファイル名は必ず安全化する。拡張子は許可済みのものだけ使う。
     ext, mime_type = get_audio_metadata(file.filename, file.mimetype)
     
+    # 新規録音の場合、以前の履歴と音声ファイルをクリアしてから処理する
+    if not is_truthy(request.form.get('is_append')):
+        History.query.filter_by(user_id=current_user.id).delete()
+        db.session.commit()
+        user_prefix = f"user_{current_user.id}_"
+        if os.path.exists(app.config['UPLOAD_FOLDER']):
+            for f in os.listdir(app.config['UPLOAD_FOLDER']):
+                if f.startswith(user_prefix):
+                    try:
+                        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
+                    except Exception as e:
+                        logger.warning(f"clear_on_new file removal error: {e}")
+        session.pop('last_audio_file', None)
+        session.pop('last_audio_mime', None)
+    
     filename = f"user_{current_user.id}_{int(time.time())}{ext}"
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
@@ -1286,6 +1301,21 @@ def upload_complete():
         return jsonify({'error': 'ファイルの結合に失敗しました'}), 500
 
     shutil.rmtree(chunks_dir, ignore_errors=True)
+
+    # 新規録音の場合、以前の履歴と音声ファイルをクリアする（今マージした自ファイルは残す）
+    if not is_truthy(request.form.get('is_append')):
+        History.query.filter_by(user_id=current_user.id).delete()
+        db.session.commit()
+        user_prefix = f"user_{current_user.id}_"
+        if os.path.exists(app.config['UPLOAD_FOLDER']):
+            for f in os.listdir(app.config['UPLOAD_FOLDER']):
+                if f.startswith(user_prefix) and f != filename:
+                    try:
+                        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
+                    except Exception as e:
+                        logger.warning(f"clear_on_new file removal error: {e}")
+        session.pop('last_audio_file', None)
+        session.pop('last_audio_mime', None)
 
     session['last_audio_file'] = filename
     session['last_audio_mime'] = mime_type
