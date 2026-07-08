@@ -1434,7 +1434,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
     };
     el.fix.onclick=async()=>{
         const t=el.res.value; if(!t){showToast("テキストがありません",true);return;}
-        const fixInstruction = "文章中に含まれる不自然なスペース（空白）をすべて除去して、正しい日本語の文章に修正してください。余計なスペースを削除し、自然な表記にしてください。ただし、単語間の適切なスペース（例：英単語の区切りなど）は保持してください。修正後のテキストのみを出力してください。"
+        const fixInstruction = "文章中に含まれる不自然なスペース（空白）をすべて除去して、正しい日本語の文章に修正してください。余計なスペースのみを削除し、表記・言い回し・文体などには一切変更を加えないでください。単語間の適切なスペース（例：英単語の区切りなど）は保持してください。修正後のテキストだけを出力し、それ以外の説明や接頭辞・接尾辞は一切付けないでください。"
         isAppendMode=false; el.stat.innerText="間隔修正中..."; el.fix.disabled=true;
         abortController = new AbortController();
         try{
