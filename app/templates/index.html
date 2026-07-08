@@ -1279,15 +1279,15 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const useProcessing = el.noise.checked;
             const constraints = {
-                audio: {
-                    echoCancellation: useProcessing,
-                    noiseSuppression: useProcessing,
-                    autoGainControl: useProcessing,
-                    googEchoCancellation: useProcessing,
-                    googAutoGainControl: useProcessing,
-                    googNoiseSuppression: useProcessing,
-                    googHighpassFilter: useProcessing
-                }
+                audio: useProcessing ? {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    googEchoCancellation: true,
+                    googAutoGainControl: true,
+                    googNoiseSuppression: true,
+                    googHighpassFilter: true
+                } : true
             };
             
             audioStream = await navigator.mediaDevices.getUserMedia(constraints);
