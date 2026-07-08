@@ -49,3 +49,6 @@ Thumbs.db
 .opencode/
 opencode.sh
 .config/
+
+# Documentation
+mobile_chrome_noise_suppression_fix.md

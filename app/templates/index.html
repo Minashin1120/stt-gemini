@@ -1050,21 +1050,26 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
 
     // --- Visualizer & Audio ---
     function vis(s){
-        if(!audioContext) audioContext=new AudioContext();
+        if (!audioContext) return;
+        if (audioContext.state === 'suspended') audioContext.resume();
         const src=audioContext.createMediaStreamSource(s), ana=audioContext.createAnalyser();
         ana.fftSize=2048; src.connect(ana);
         const data=new Uint8Array(ana.frequencyBinCount);
         canvas.style.display="block";
+        canvas.width = canvas.clientWidth || 300;
+        canvas.height = canvas.clientHeight || 80;
+        const sensitivity = 8.0;
         (function draw(){
             if(!isRecording) return;
-            requestAnimationFrame(draw); ana.getByteTimeDomainData(data);
+            requestAnimationFrame(draw);
+            if (audioContext.state === 'suspended') audioContext.resume();
+            ana.getByteTimeDomainData(data);
             ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fillRect(0,0,canvas.width,canvas.height);
             ctx.lineWidth=2; 
             const tm=document.documentElement.getAttribute('data-theme');
             ctx.strokeStyle = tm==='gaming' ? `hsl(${Date.now()/10%360},100%,50%)` : getComputedStyle(document.body).getPropertyValue('--primary-color');
             ctx.beginPath();
             let x=0, sw=canvas.width/data.length;
-            const sensitivity = 8.0; 
             for(let i=0;i<data.length;i++){
                 let v = ((data[i] - 128.0) * sensitivity / 128.0) + 1.0;
                 let y = v * canvas.height / 2;
@@ -1290,6 +1295,10 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         }
 
         try {
+            // AudioContextをユーザージェスチャ内で生成し、モバイルChromeでのsuspended状態を防止
+            if (!audioContext) audioContext = new AudioContext();
+            if (audioContext.state === 'suspended') await audioContext.resume();
+
             const useProcessing = el.noise.checked;
             const constraints = {
                 audio: useProcessing ? {
@@ -1308,7 +1317,6 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             const fmt=document.querySelector('input[name="format"]:checked').value;
             
             if(fmt==='mp3'){
-                if(!audioContext) audioContext = new AudioContext();
                 const sampleRate = audioContext.sampleRate;
                 microphone = audioContext.createMediaStreamSource(audioStream);
                 processor = audioContext.createScriptProcessor(8192, 1, 1);
