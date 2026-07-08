@@ -801,106 +801,231 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Acquire mic stream for STT.
-     * Checkbox ON  → noiseSuppression (+ AGC) enabled
-     * Checkbox OFF → noiseSuppression / AGC / EC all disabled (raw)
+     * マイク取得（ノイズ除去 ON/OFF）
      *
-     * Recording uses silent monitoring (no speaker output), so echoCancellation
-     * is always false: enabling EC without playback can attenuate speech and
-     * make the waveform look "gated" even when the user expects the opposite.
-     * NOTE: { audio: true } keeps Chrome defaults (NS/AGC/EC often ON).
+     * OFF が効かない主因（モバイルChrome）:
+     *  - { audio: true } だとデフォルトで NS/AGC が ON
+     *  - false を書いても端末/OS のハード NS は残ることがある
+     *  - Chrome は EC=true のときハード NS を一時停止することがある（逆に EC=false だとハード NS 放置）
+     * そのため OFF 時は複数の constraint 戦略を順に試し、getSettings() で
+     * noiseSuppression===false を確認できたストリームを採用する。
      */
-    async function acquireMicStream(noiseOn) {
-        // noiseOn === true  → トグル「ノイズ除去」ON
-        // noiseOn === false → トグル OFF（生マイク）
-        const quality = {
-            channelCount: { ideal: 1 },
-            sampleRate: { ideal: 48000 }
-        };
-        // エコーキャンセルは常に OFF（スピーカー再生なしの録音専用）
-        const preferred = noiseOn
-            ? {
+    function stopStreamTracks(stream) {
+        if (!stream) return;
+        try { stream.getTracks().forEach(t => t.stop()); } catch (_) {}
+    }
+
+    function readMicSettings(track) {
+        if (!track || typeof track.getSettings !== 'function') return {};
+        try { return track.getSettings() || {}; } catch (_) { return {}; }
+    }
+
+    function scoreMicMatch(noiseOn, settings) {
+        // 高いほど希望に近い。boolean が読めない端末は中間点。
+        const ns = settings.noiseSuppression;
+        const agc = settings.autoGainControl;
+        const ec = settings.echoCancellation;
+        let score = 0;
+        if (noiseOn) {
+            if (ns === true) score += 4;
+            else if (ns === false) score -= 4;
+            if (agc === true) score += 1;
+            if (ec === false) score += 1;
+        } else {
+            if (ns === false) score += 4;
+            else if (ns === true) score -= 4;
+            if (agc === false) score += 2;
+            else if (agc === true) score -= 2;
+            if (ec === false) score += 1;
+            else if (ec === true) score -= 1;
+        }
+        return score;
+    }
+
+    function buildNoiseOffConstraintSets() {
+        // 成功しやすい順に並べる（いずれも「生に近い」狙い）
+        return [
+            // 1) 標準 + 旧 goog* + voiceIsolation をまとめて false
+            {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+                voiceIsolation: false,
+                googEchoCancellation: false,
+                googAutoGainControl: false,
+                googAutoGainControl2: false,
+                googNoiseSuppression: false,
+                googNoiseSuppression2: false,
+                googHighpassFilter: false,
+                googTypingNoiseDetection: false,
+                googExperimentalEchoCancellation: false,
+                googExperimentalNoiseSuppression: false,
+                googExperimentalAutoGainControl: false,
+                channelCount: { ideal: 1 },
+                sampleRate: { ideal: 48000 }
+            },
+            // 2) exact: false（必須指定。満たせなければ reject → 次へ）
+            {
+                echoCancellation: { exact: false },
+                noiseSuppression: { exact: false },
+                autoGainControl: { exact: false }
+            },
+            // 3) Chromium の「EC=false が APM マスタースイッチ」最小セット
+            { echoCancellation: false },
+            // 4) advanced で個別に押し込む
+            {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+                advanced: [
+                    { echoCancellation: false },
+                    { noiseSuppression: false },
+                    { autoGainControl: false },
+                    { googNoiseSuppression: false },
+                    { googAutoGainControl: false }
+                ]
+            },
+            // 5) コア3フラグのみ
+            {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            },
+            // 6) 最終手段: EC だけ true にしてハード NS を切らせ、ソフト NS/AGC は false
+            //    （Chrome の hardware ambient NS 抑制。ソフトECは残るが NS よりマシな端末あり）
+            {
+                echoCancellation: true,
+                noiseSuppression: false,
+                autoGainControl: false,
+                googEchoCancellation: true,
+                googNoiseSuppression: false,
+                googAutoGainControl: false,
+                googHighpassFilter: false
+            }
+        ];
+    }
+
+    function buildNoiseOnConstraintSets() {
+        return [
+            {
                 echoCancellation: false,
                 noiseSuppression: true,
                 autoGainControl: true,
+                voiceIsolation: false,
                 googEchoCancellation: false,
                 googAutoGainControl: true,
                 googNoiseSuppression: true,
                 googHighpassFilter: false,
-                ...quality
-            }
-            : {
+                channelCount: { ideal: 1 },
+                sampleRate: { ideal: 48000 }
+            },
+            {
                 echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false,
-                googEchoCancellation: false,
-                googAutoGainControl: false,
-                googNoiseSuppression: false,
-                googHighpassFilter: false,
-                ...quality
-            };
+                noiseSuppression: true,
+                autoGainControl: true
+            },
+            {
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        ];
+    }
 
-        let stream;
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({ audio: preferred });
-        } catch (e) {
-            const fallback = noiseOn
-                ? { echoCancellation: false, noiseSuppression: true, autoGainControl: true }
-                : { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-            stream = await navigator.mediaDevices.getUserMedia({ audio: fallback });
-        }
-
+    async function tryGetUserMediaAudio(audioConstraints) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         const track = stream.getAudioTracks()[0];
         if (track) {
-            // 取得後に意図どおり再適用（モバイルChrome対策）。ON/OFF 両方で実行
-            const force = noiseOn
-                ? { echoCancellation: false, noiseSuppression: true, autoGainControl: true }
-                : { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+            // 取得後にもう一度押し込む（初期値が無視される端末向け）
             try {
-                await track.applyConstraints(force);
-            } catch (_) { /* not mutable on this device */ }
-
-            // OFF なのに NS が true のままなら、Chromium の「EC=false が APM マスター」経路を再試行
-            if (!noiseOn) {
-                const s0 = track.getSettings();
-                if (s0.noiseSuppression === true || s0.autoGainControl === true) {
-                    try {
-                        await track.applyConstraints({
-                            echoCancellation: { exact: false },
-                            noiseSuppression: { exact: false },
-                            autoGainControl: { exact: false }
-                        });
-                    } catch (_) {
-                        try {
-                            // exact 非対応端末向け
-                            await track.applyConstraints({
-                                echoCancellation: false,
-                                noiseSuppression: false,
-                                autoGainControl: false
-                            });
-                        } catch (__) { /* give up */ }
+                const reapply = {};
+                ['echoCancellation', 'noiseSuppression', 'autoGainControl', 'voiceIsolation'].forEach(k => {
+                    if (audioConstraints[k] !== undefined) {
+                        const v = audioConstraints[k];
+                        reapply[k] = (v && typeof v === 'object' && 'exact' in v) ? v.exact : v;
                     }
-                }
-            }
-
-            const s = track.getSettings();
-            console.log('[STT mic settings]', {
-                requestedNoiseOn: noiseOn,
-                echoCancellation: s.echoCancellation,
-                noiseSuppression: s.noiseSuppression,
-                autoGainControl: s.autoGainControl,
-                sampleRate: s.sampleRate,
-                channelCount: s.channelCount
-            });
-            // 実効設定を呼び出し側でバッジ表示できるよう track にメモ
-            stream._sttMicSettings = {
-                requestedNoiseOn: noiseOn,
-                noiseSuppression: s.noiseSuppression,
-                autoGainControl: s.autoGainControl,
-                echoCancellation: s.echoCancellation
-            };
+                });
+                if (Object.keys(reapply).length) await track.applyConstraints(reapply);
+            } catch (_) { /* ignore */ }
         }
         return stream;
+    }
+
+    async function acquireMicStream(noiseOn) {
+        const sets = noiseOn ? buildNoiseOnConstraintSets() : buildNoiseOffConstraintSets();
+        let best = null; // { stream, settings, score, index }
+        const attempts = [];
+
+        for (let i = 0; i < sets.length; i++) {
+            let stream = null;
+            try {
+                stream = await tryGetUserMediaAudio(sets[i]);
+            } catch (err) {
+                attempts.push({ index: i, error: String(err && err.message || err) });
+                continue;
+            }
+            const track = stream.getAudioTracks()[0];
+            const settings = readMicSettings(track);
+            const score = scoreMicMatch(noiseOn, settings);
+            attempts.push({
+                index: i,
+                score,
+                noiseSuppression: settings.noiseSuppression,
+                autoGainControl: settings.autoGainControl,
+                echoCancellation: settings.echoCancellation
+            });
+
+            if (!best || score > best.score) {
+                if (best) stopStreamTracks(best.stream);
+                best = { stream, settings, score, index: i };
+            } else {
+                stopStreamTracks(stream);
+            }
+
+            // OFF で NS/AGC とも false を確認できたら打ち切り
+            if (!noiseOn && settings.noiseSuppression === false && settings.autoGainControl === false) {
+                break;
+            }
+            // ON で NS true を確認できたら打ち切り
+            if (noiseOn && settings.noiseSuppression === true) {
+                break;
+            }
+        }
+
+        if (!best) {
+            // 全滅時の最終フォールバック
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: noiseOn
+                    ? { noiseSuppression: true, autoGainControl: true, echoCancellation: false }
+                    : { noiseSuppression: false, autoGainControl: false, echoCancellation: false }
+            });
+            const settings = readMicSettings(stream.getAudioTracks()[0]);
+            best = { stream, settings, score: scoreMicMatch(noiseOn, settings), index: -1 };
+        }
+
+        const s = best.settings || {};
+        console.log('[STT mic settings]', {
+            requestedNoiseOn: noiseOn,
+            chosenStrategy: best.index,
+            score: best.score,
+            echoCancellation: s.echoCancellation,
+            noiseSuppression: s.noiseSuppression,
+            autoGainControl: s.autoGainControl,
+            sampleRate: s.sampleRate,
+            channelCount: s.channelCount,
+            attempts
+        });
+
+        best.stream._sttMicSettings = {
+            requestedNoiseOn: noiseOn,
+            noiseSuppression: s.noiseSuppression,
+            autoGainControl: s.autoGainControl,
+            echoCancellation: s.echoCancellation,
+            strategy: best.index,
+            score: best.score,
+            // OFF 要求なのに NS が true / 不明 なら端末側で切れていない可能性
+            offLikelyFailed: !noiseOn && s.noiseSuppression === true
+        };
+        return best.stream;
     }
 
     function teardownCaptureGraph() {
@@ -1500,26 +1625,31 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             silentGain.connect(audioContext.destination);
 
             el.recNew.disabled=el.recAdd.disabled=true; el.stop.disabled=el.pause.disabled=el.cancel.disabled=false;
-            // 要求値と実効値（getSettings）を両方表示。波形の「逆」判定用
+            // 要求値と実効値（getSettings）を両方表示
             const mic = audioStream._sttMicSettings || {};
             const effNs = mic.noiseSuppression;
-            const mismatch = (typeof effNs === 'boolean' && effNs !== noiseOn);
+            const mismatch = (typeof effNs === 'boolean' && effNs !== noiseOn) || !!mic.offLikelyFailed;
             const noiseLabel = noiseOn
                 ? '<span class="badge bg-primary ms-1">ノイズ除去: ON</span>'
                 : '<span class="badge bg-secondary ms-1">ノイズ除去: OFF</span>';
-            const effLabel = (typeof effNs === 'boolean')
-                ? `<span class="badge ${mismatch ? 'bg-warning text-dark' : 'bg-dark'} ms-1">実効NS: ${effNs ? 'ON' : 'OFF'}</span>`
-                : '';
+            let effLabel = '';
+            if (typeof effNs === 'boolean') {
+                effLabel = `<span class="badge ${mismatch ? 'bg-warning text-dark' : 'bg-dark'} ms-1">実効NS: ${effNs ? 'ON' : 'OFF'}</span>`;
+            } else if (!noiseOn) {
+                effLabel = '<span class="badge bg-secondary ms-1">実効NS: 不明</span>';
+            }
             const fmtLabel = recordFormat === 'wav'
                 ? '<span class="badge bg-info text-dark ms-1">WAV(PCM)</span>'
                 : '<span class="badge bg-info text-dark ms-1">MP3 192k</span>';
             el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${noiseLabel} ${effLabel} ${fmtLabel}`;
-            if (mismatch) {
+            if (mismatch || mic.offLikelyFailed) {
                 showToast(noiseOn
                     ? '端末がノイズ除去ONを拒否している可能性があります'
-                    : '端末がノイズ除去をOFFにできない可能性があります', true);
+                    : 'この端末ではブラウザからノイズ除去をOFFにできません（OS/ハード側）。設定のマイクノイズ低減をOFFにしてください', true);
+            } else if (!noiseOn && typeof effNs !== 'boolean') {
+                showToast('録音開始（実効NSを端末が報告しません。生マイク指定で取得済み）');
             } else {
-                showToast(`録音開始`);
+                showToast(noiseOn ? '録音開始（ノイズ除去ON）' : '録音開始（ノイズ除去OFF・生マイク）');
             }
         } catch(e){
             isRecording=false;
