@@ -755,8 +755,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-    let selectedFile = null, mediaRecorder, audioContext, processor, microphone, silentGain, mp3Encoder, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [], pcmChunks = [], recordFormat = 'mp3';
+    let selectedFile = null, mediaRecorder, audioContext, processor, microphone, silentGain, analyserNode, captureSink, mp3Encoder, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [], pcmChunks = [], recordFormat = 'mp3';
     let abortController = null;
+    let visPeakEma = 0.02;
 
     function floatTo16BitPCM(float32Array) {
         const d = new Int16Array(float32Array.length);
@@ -803,12 +804,9 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * マイク取得（ノイズ除去 ON/OFF）
      *
-     * OFF が効かない主因（モバイルChrome）:
-     *  - { audio: true } だとデフォルトで NS/AGC が ON
-     *  - false を書いても端末/OS のハード NS は残ることがある
-     *  - Chrome は EC=true のときハード NS を一時停止することがある（逆に EC=false だとハード NS 放置）
-     * そのため OFF 時は複数の constraint 戦略を順に試し、getSettings() で
-     * noiseSuppression===false を確認できたストリームを採用する。
+     * UI「ノイズ除去」は noiseSuppression のみを切り替える。
+     * AGC は常に ON 推奨: OFF にするとタップ音などが極小になり波形が「死んだ」ように見える。
+     * EC は録音専用のため常に OFF。
      */
     function stopStreamTracks(stream) {
         if (!stream) return;
@@ -821,86 +819,65 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function scoreMicMatch(noiseOn, settings) {
-        // 高いほど希望に近い。boolean が読めない端末は中間点。
         const ns = settings.noiseSuppression;
         const agc = settings.autoGainControl;
         const ec = settings.echoCancellation;
         let score = 0;
         if (noiseOn) {
-            if (ns === true) score += 4;
-            else if (ns === false) score -= 4;
-            if (agc === true) score += 1;
-            if (ec === false) score += 1;
+            if (ns === true) score += 5;
+            else if (ns === false) score -= 5;
         } else {
-            if (ns === false) score += 4;
-            else if (ns === true) score -= 4;
-            if (agc === false) score += 2;
-            else if (agc === true) score -= 2;
-            if (ec === false) score += 1;
-            else if (ec === true) score -= 1;
+            if (ns === false) score += 5;
+            else if (ns === true) score -= 5;
         }
+        // 波形・STT ともレベル確保のため AGC は true を優遇（トグル対象外）
+        if (agc === true) score += 2;
+        else if (agc === false) score -= 1;
+        if (ec === false) score += 1;
+        else if (ec === true) score -= 1;
         return score;
     }
 
     function buildNoiseOffConstraintSets() {
-        // 成功しやすい順に並べる（いずれも「生に近い」狙い）
+        // NS だけ false。AGC は true のまま（タップ音が波形に出るように）
         return [
-            // 1) 標準 + 旧 goog* + voiceIsolation をまとめて false
             {
                 echoCancellation: false,
                 noiseSuppression: false,
-                autoGainControl: false,
+                autoGainControl: true,
                 voiceIsolation: false,
                 googEchoCancellation: false,
-                googAutoGainControl: false,
-                googAutoGainControl2: false,
                 googNoiseSuppression: false,
                 googNoiseSuppression2: false,
+                googAutoGainControl: true,
                 googHighpassFilter: false,
                 googTypingNoiseDetection: false,
-                googExperimentalEchoCancellation: false,
-                googExperimentalNoiseSuppression: false,
-                googExperimentalAutoGainControl: false,
                 channelCount: { ideal: 1 },
                 sampleRate: { ideal: 48000 }
             },
-            // 2) exact: false（必須指定。満たせなければ reject → 次へ）
             {
                 echoCancellation: { exact: false },
                 noiseSuppression: { exact: false },
-                autoGainControl: { exact: false }
+                autoGainControl: { ideal: true }
             },
-            // 3) Chromium の「EC=false が APM マスタースイッチ」最小セット
-            { echoCancellation: false },
-            // 4) advanced で個別に押し込む
             {
                 echoCancellation: false,
                 noiseSuppression: false,
-                autoGainControl: false,
+                autoGainControl: true,
                 advanced: [
-                    { echoCancellation: false },
                     { noiseSuppression: false },
-                    { autoGainControl: false },
                     { googNoiseSuppression: false },
-                    { googAutoGainControl: false }
+                    { echoCancellation: false }
                 ]
             },
-            // 5) コア3フラグのみ
-            {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false
-            },
-            // 6) 最終手段: EC だけ true にしてハード NS を切らせ、ソフト NS/AGC は false
-            //    （Chrome の hardware ambient NS 抑制。ソフトECは残るが NS よりマシな端末あり）
+            // NS を確実に落とす最小セット（AGC はブラウザ任せ）
+            { noiseSuppression: false, echoCancellation: false },
+            // 最終: ハード NS 回避のため EC を true にしつつソフト NS は false
             {
                 echoCancellation: true,
                 noiseSuppression: false,
-                autoGainControl: false,
-                googEchoCancellation: true,
-                googNoiseSuppression: false,
-                googAutoGainControl: false,
-                googHighpassFilter: false
+                autoGainControl: true,
+                googNoiseSuppression: false
             }
         ];
     }
@@ -923,10 +900,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 echoCancellation: false,
                 noiseSuppression: true,
                 autoGainControl: true
-            },
-            {
-                noiseSuppression: true,
-                autoGainControl: true
             }
         ];
     }
@@ -935,24 +908,27 @@ document.addEventListener('DOMContentLoaded', () => {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         const track = stream.getAudioTracks()[0];
         if (track) {
-            // 取得後にもう一度押し込む（初期値が無視される端末向け）
             try {
                 const reapply = {};
                 ['echoCancellation', 'noiseSuppression', 'autoGainControl', 'voiceIsolation'].forEach(k => {
                     if (audioConstraints[k] !== undefined) {
                         const v = audioConstraints[k];
-                        reapply[k] = (v && typeof v === 'object' && 'exact' in v) ? v.exact : v;
+                        reapply[k] = (v && typeof v === 'object' && ('exact' in v || 'ideal' in v))
+                            ? (('exact' in v) ? v.exact : v.ideal)
+                            : v;
                     }
                 });
                 if (Object.keys(reapply).length) await track.applyConstraints(reapply);
             } catch (_) { /* ignore */ }
+            // トラックが mute されていないことを保証
+            try { track.enabled = true; } catch (_) {}
         }
         return stream;
     }
 
     async function acquireMicStream(noiseOn) {
         const sets = noiseOn ? buildNoiseOnConstraintSets() : buildNoiseOffConstraintSets();
-        let best = null; // { stream, settings, score, index }
+        let best = null;
         const attempts = [];
 
         for (let i = 0; i < sets.length; i++) {
@@ -981,22 +957,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 stopStreamTracks(stream);
             }
 
-            // OFF で NS/AGC とも false を確認できたら打ち切り
-            if (!noiseOn && settings.noiseSuppression === false && settings.autoGainControl === false) {
-                break;
-            }
-            // ON で NS true を確認できたら打ち切り
-            if (noiseOn && settings.noiseSuppression === true) {
-                break;
-            }
+            // NS の希望値だけ一致すれば十分（AGC は true 優遇だが必須ではない）
+            if (!noiseOn && settings.noiseSuppression === false) break;
+            if (noiseOn && settings.noiseSuppression === true) break;
         }
 
         if (!best) {
-            // 全滅時の最終フォールバック
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: noiseOn
                     ? { noiseSuppression: true, autoGainControl: true, echoCancellation: false }
-                    : { noiseSuppression: false, autoGainControl: false, echoCancellation: false }
+                    : { noiseSuppression: false, autoGainControl: true, echoCancellation: false }
             });
             const settings = readMicSettings(stream.getAudioTracks()[0]);
             best = { stream, settings, score: scoreMicMatch(noiseOn, settings), index: -1 };
@@ -1022,7 +992,6 @@ document.addEventListener('DOMContentLoaded', () => {
             echoCancellation: s.echoCancellation,
             strategy: best.index,
             score: best.score,
-            // OFF 要求なのに NS が true / 不明 なら端末側で切れていない可能性
             offLikelyFailed: !noiseOn && s.noiseSuppression === true
         };
         return best.stream;
@@ -1031,10 +1000,88 @@ document.addEventListener('DOMContentLoaded', () => {
     function teardownCaptureGraph() {
         try { if (microphone) microphone.disconnect(); } catch (_) {}
         try { if (processor) processor.disconnect(); } catch (_) {}
+        try { if (analyserNode) analyserNode.disconnect(); } catch (_) {}
         try { if (silentGain) silentGain.disconnect(); } catch (_) {}
+        try { if (captureSink) captureSink.disconnect(); } catch (_) {}
         microphone = null;
         processor = null;
+        analyserNode = null;
         silentGain = null;
+        captureSink = null;
+    }
+
+    async function ensureAudioContextRunning() {
+        if (!audioContext || audioContext.state === 'closed') {
+            audioContext = new AudioContext();
+        }
+        if (audioContext.state === 'suspended') {
+            try { await audioContext.resume(); } catch (_) {}
+        }
+        // 長時間の getUserMedia 後に suspended のまま残ることがある → 再生成
+        if (audioContext.state !== 'running') {
+            try { await audioContext.close(); } catch (_) {}
+            audioContext = new AudioContext();
+            try { await audioContext.resume(); } catch (_) {}
+        }
+        return audioContext.state;
+    }
+
+    function startVisualizer() {
+        if (!analyserNode || !canvas) return;
+        canvas.style.display = 'block';
+        canvas.width = canvas.clientWidth || 300;
+        canvas.height = canvas.clientHeight || 80;
+        const data = new Uint8Array(analyserNode.fftSize);
+        visPeakEma = 0.02;
+
+        (function draw() {
+            if (!isRecording || !analyserNode) return;
+            requestAnimationFrame(draw);
+            if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+
+            analyserNode.getByteTimeDomainData(data);
+
+            // 128 からの最大偏差 → 自動感度（小さいタップも見えるように）
+            let peak = 0;
+            let sumSq = 0;
+            for (let i = 0; i < data.length; i++) {
+                const d = data[i] - 128;
+                const a = Math.abs(d);
+                if (a > peak) peak = a;
+                sumSq += d * d;
+            }
+            const peakN = peak / 128;
+            const rms = Math.sqrt(sumSq / data.length) / 128;
+            visPeakEma = visPeakEma * 0.85 + Math.max(peakN, rms * 1.5) * 0.15;
+            // 現在レベルが画面の約 65% になるよう感度を自動調整
+            let sensitivity = visPeakEma > 0.0005 ? (0.65 / visPeakEma) : 40;
+            sensitivity = Math.min(100, Math.max(6, sensitivity));
+
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 2;
+            const tm = document.documentElement.getAttribute('data-theme');
+            ctx.strokeStyle = tm === 'gaming'
+                ? `hsl(${Date.now() / 10 % 360},100%,50%)`
+                : (getComputedStyle(document.body).getPropertyValue('--primary-color') || '#0d6efd');
+            ctx.beginPath();
+            let x = 0;
+            const sw = canvas.width / data.length;
+            for (let i = 0; i < data.length; i++) {
+                let v = ((data[i] - 128.0) * sensitivity / 128.0) + 1.0;
+                let y = v * canvas.height / 2;
+                if (y < 0) y = 0;
+                if (y > canvas.height) y = canvas.height;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                x += sw;
+            }
+            ctx.stroke();
+
+            // レベルバー（無音判定用）
+            const levelW = Math.min(canvas.width, Math.max(2, canvas.width * Math.min(1, visPeakEma * 3)));
+            ctx.fillStyle = visPeakEma < 0.01 ? 'rgba(220,53,69,0.85)' : 'rgba(25,135,84,0.85)';
+            ctx.fillRect(0, canvas.height - 4, levelW, 4);
+        })();
     }
 
     // UI Elements
@@ -1330,39 +1377,6 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         }
     });
 
-    // --- Visualizer & Audio ---
-    function vis(s){
-        if (!audioContext) return;
-        if (audioContext.state === 'suspended') audioContext.resume();
-        const src=audioContext.createMediaStreamSource(s), ana=audioContext.createAnalyser();
-        ana.fftSize=2048; src.connect(ana);
-        const data=new Uint8Array(ana.frequencyBinCount);
-        canvas.style.display="block";
-        canvas.width = canvas.clientWidth || 300;
-        canvas.height = canvas.clientHeight || 80;
-        const sensitivity = 8.0;
-        (function draw(){
-            if(!isRecording) return;
-            requestAnimationFrame(draw);
-            if (audioContext.state === 'suspended') audioContext.resume();
-            ana.getByteTimeDomainData(data);
-            ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fillRect(0,0,canvas.width,canvas.height);
-            ctx.lineWidth=2; 
-            const tm=document.documentElement.getAttribute('data-theme');
-            ctx.strokeStyle = tm==='gaming' ? `hsl(${Date.now()/10%360},100%,50%)` : getComputedStyle(document.body).getPropertyValue('--primary-color');
-            ctx.beginPath();
-            let x=0, sw=canvas.width/data.length;
-            for(let i=0;i<data.length;i++){
-                let v = ((data[i] - 128.0) * sensitivity / 128.0) + 1.0;
-                let y = v * canvas.height / 2;
-                if (y < 0) y = 0;
-                if (y > canvas.height) y = canvas.height;
-                i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); x+=sw;
-            }
-            ctx.stroke();
-        })();
-    }
-
     // --- Stream & Upload ---
     let sseBuffer = "";
     async function handleStreamResponse(r) {
@@ -1584,29 +1598,37 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         pcmChunks = [];
 
         try {
-            // AudioContextをユーザージェスチャー内で生成し、モバイルChromeでのsuspended状態を防止
-            if (!audioContext) audioContext = new AudioContext();
-            if (audioContext.state === 'suspended') await audioContext.resume();
+            // ユーザージェスチャー内で AudioContext を用意
+            await ensureAudioContextRunning();
 
-            // チェックON = ノイズ除去する / OFF = 生マイク（反転させない）
+            // チェックON = ノイズ除去する / OFF = NSのみ切る（AGCは維持）
             const noiseOn = !!(el.noise && el.noise.checked);
             audioStream = await acquireMicStream(noiseOn);
-            isRecording=true; isPaused=false; vis(audioStream);
+
+            // getUserMedia が長引くと suspended になりうる → 再確保
+            const ctxState = await ensureAudioContextRunning();
+            console.log('[STT AudioContext]', ctxState);
+
+            isRecording = true;
+            isPaused = false;
             recordFormat = document.querySelector('input[name="format"]:checked').value;
 
-            // MP3/WAV とも AudioContext + ScriptProcessor で PCM 採取（MediaRecorder/Opus はSTT向けに劣化しやすい）
+            // 単一の MediaStreamSource → Analyser + ScriptProcessor（波形と録音で二重Sourceにしない）
             const sampleRate = audioContext.sampleRate;
             microphone = audioContext.createMediaStreamSource(audioStream);
+            analyserNode = audioContext.createAnalyser();
+            analyserNode.fftSize = 2048;
+            analyserNode.smoothingTimeConstant = 0.25;
             processor = audioContext.createScriptProcessor(8192, 1, 1);
-            // destination 直結はスピーカー再生→エコー/AGC干渉の原因になるため無音Gain経由
+            // gain=0 だと一部Chromeでグラフが止まって波形が無音になるため極小値 + MediaStreamDestination
             silentGain = audioContext.createGain();
-            silentGain.gain.value = 0;
+            silentGain.gain.value = 0.0001;
+            captureSink = audioContext.createMediaStreamDestination();
             audioChunks = [];
             pcmChunks = [];
             mp3Encoder = null;
 
             if (recordFormat === 'mp3') {
-                // 128→192kbps: 音声認識向けに高周波成分を残す
                 mp3Encoder = new lamejs.Mp3Encoder(1, sampleRate, 192);
             }
 
@@ -1620,12 +1642,16 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
                     pcmChunks.push(pcm);
                 }
             };
+
+            microphone.connect(analyserNode);
             microphone.connect(processor);
+            processor.connect(captureSink);
             processor.connect(silentGain);
             silentGain.connect(audioContext.destination);
 
+            startVisualizer();
+
             el.recNew.disabled=el.recAdd.disabled=true; el.stop.disabled=el.pause.disabled=el.cancel.disabled=false;
-            // 要求値と実効値（getSettings）を両方表示
             const mic = audioStream._sttMicSettings || {};
             const effNs = mic.noiseSuppression;
             const mismatch = (typeof effNs === 'boolean' && effNs !== noiseOn) || !!mic.offLikelyFailed;
@@ -1638,18 +1664,19 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             } else if (!noiseOn) {
                 effLabel = '<span class="badge bg-secondary ms-1">実効NS: 不明</span>';
             }
+            const agcLabel = (typeof mic.autoGainControl === 'boolean')
+                ? `<span class="badge bg-dark ms-1">AGC: ${mic.autoGainControl ? 'ON' : 'OFF'}</span>`
+                : '';
             const fmtLabel = recordFormat === 'wav'
                 ? '<span class="badge bg-info text-dark ms-1">WAV(PCM)</span>'
                 : '<span class="badge bg-info text-dark ms-1">MP3 192k</span>';
-            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${noiseLabel} ${effLabel} ${fmtLabel}`;
+            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${noiseLabel} ${effLabel} ${agcLabel} ${fmtLabel}`;
             if (mismatch || mic.offLikelyFailed) {
                 showToast(noiseOn
                     ? '端末がノイズ除去ONを拒否している可能性があります'
-                    : 'この端末ではブラウザからノイズ除去をOFFにできません（OS/ハード側）。設定のマイクノイズ低減をOFFにしてください', true);
-            } else if (!noiseOn && typeof effNs !== 'boolean') {
-                showToast('録音開始（実効NSを端末が報告しません。生マイク指定で取得済み）');
+                    : 'この端末ではブラウザからノイズ除去をOFFにできません（OS/ハード側）', true);
             } else {
-                showToast(noiseOn ? '録音開始（ノイズ除去ON）' : '録音開始（ノイズ除去OFF・生マイク）');
+                showToast(noiseOn ? '録音開始（ノイズ除去ON）' : '録音開始（ノイズ除去OFF）');
             }
         } catch(e){
             isRecording=false;
