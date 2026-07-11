@@ -196,6 +196,11 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn("'unsafe-eval'", response.headers['Content-Security-Policy'])
         self.assertIn('max-age=31536000', response.headers['Strict-Transport-Security'])
 
+    def test_all_templates_compile(self):
+        with application.app.app_context():
+            for template_name in application.app.jinja_env.list_templates():
+                application.app.jinja_env.get_template(template_name)
+
     def test_gemini_key_is_sent_in_header_not_url(self):
         response = Mock(status_code=200)
         response.iter_lines.return_value = []
