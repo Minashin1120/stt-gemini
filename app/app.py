@@ -7,6 +7,7 @@ import threading
 import secrets
 import uuid
 import logging
+import fcntl
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response, stream_with_context, session, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -14,8 +15,10 @@ from flask_sqlalchemy import SQLAlchemy
 from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
 from sqlalchemy import inspect
+from sqlalchemy.exc import IntegrityError
 
 load_dotenv()
 
@@ -24,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI')
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'uploads')
@@ -32,6 +36,28 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=1)
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['REMEMBER_COOKIE_SECURE'] = True
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
+app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=1)
+
+MAX_GEMINI_AUDIO_BYTES = 100 * 1024 * 1024
+MAX_XAI_AUDIO_BYTES = 500 * 1024 * 1024
+MAX_CHUNK_BYTES = 6 * 1024 * 1024
+MAX_CHUNKS = 100
+MAX_INCOMPLETE_UPLOADS = 3
+MAX_API_KEY_LENGTH = 512
+MAX_TEXT_LENGTH = 200_000
+MAX_INSTRUCTION_LENGTH = 20_000
+ALLOWED_AUDIO_EXTENSIONS = {
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.m4a': 'audio/mp4',
+    '.mp4': 'audio/mp4',
+    '.webm': 'audio/webm',
+    '.ogg': 'audio/ogg',
+}
+ALLOWED_THINKING_LEVELS = {'LOW', 'MEDIUM', 'HIGH'}
 
 db = SQLAlchemy(app)
 login_manager = LoginManager()
@@ -70,30 +96,60 @@ def validate_model(model_name):
 
 # --- Task Management (Redis-backed for crash recovery) ---
 TASK_TTL = 86400  # 24h
+ACTIVE_TASK_TTL = 1200
+
+class ActiveTaskError(Exception):
+    pass
+
+@app.errorhandler(ActiveTaskError)
+def handle_active_task_error(error):
+    return jsonify({'error': '別の処理が実行中です。完了後に再度お試しください。'}), 409
 
 def create_task(user_id, action_type, input_summary, model):
     task_id = str(uuid.uuid4())
     task_key = f"task:{task_id}"
+    active_key = f"user:{user_id}:active_task"
+    if not redis_client.set(active_key, task_id, nx=True, ex=ACTIVE_TASK_TTL):
+        raise ActiveTaskError()
     now = time.time()
-    redis_client.hset(task_key, mapping={
-        'status': 'running',
-        'user_id': str(user_id),
-        'action_type': action_type,
-        'input_summary': input_summary or '',
-        'thought': '',
-        'result': '',
-        'model': model,
-        'created_at': now,
-        'updated_at': now,
-    })
-    redis_client.expire(task_key, TASK_TTL)
-    redis_client.sadd(f"user:{user_id}:tasks", task_id)
-    redis_client.expire(f"user:{user_id}:tasks", TASK_TTL)
+    try:
+        redis_client.hset(task_key, mapping={
+            'status': 'running',
+            'user_id': str(user_id),
+            'action_type': action_type,
+            'input_summary': input_summary or '',
+            'thought': '',
+            'result': '',
+            'model': model,
+            'created_at': now,
+            'updated_at': now,
+        })
+        redis_client.expire(task_key, TASK_TTL)
+        redis_client.sadd(f"user:{user_id}:tasks", task_id)
+        redis_client.expire(f"user:{user_id}:tasks", TASK_TTL)
+    except Exception:
+        redis_client.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+            1, active_key, task_id,
+        )
+        raise
     return task_id
 
 def update_task(task_id, **kwargs):
     kwargs['updated_at'] = time.time()
-    redis_client.hset(f"task:{task_id}", mapping=kwargs)
+    task_key = f"task:{task_id}"
+    redis_client.hset(task_key, mapping=kwargs)
+    task = redis_client.hgetall(task_key)
+    user_id = task.get('user_id')
+    if user_id:
+        active_key = f"user:{user_id}:active_task"
+        if kwargs.get('status') in {'done', 'error'}:
+            redis_client.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+                1, active_key, task_id,
+            )
+        elif redis_client.get(active_key) == task_id:
+            redis_client.expire(active_key, ACTIVE_TASK_TTL)
 
 def get_task(task_id):
     return redis_client.hgetall(f"task:{task_id}")
@@ -104,19 +160,30 @@ def delete_task(task_id):
         uid = task.get('user_id')
         if uid:
             redis_client.srem(f"user:{uid}:tasks", task_id)
+            redis_client.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+                1, f"user:{uid}:active_task", task_id,
+            )
         redis_client.delete(f"task:{task_id}")
 
+def consume_rate_limit(redis_key, max_requests, window_seconds):
+    current = redis_client.eval(
+        "local n = redis.call('incr', KEYS[1]); "
+        "if n == 1 then redis.call('expire', KEYS[1], ARGV[1]); end; return n",
+        1, redis_key, window_seconds,
+    )
+    return current <= max_requests
+
 def check_rate_limit(key_prefix, max_requests, window_seconds):
-    client_ip = request.remote_addr or '0.0.0.0'
-    redis_key = f"ratelimit:{key_prefix}:{client_ip}"
-    current = redis_client.get(redis_key)
-    if current and int(current) >= max_requests:
-        return False
-    pipe = redis_client.pipeline()
-    pipe.incr(redis_key)
-    pipe.expire(redis_key, window_seconds)
-    pipe.execute()
-    return True
+    client_ip = request.remote_addr or 'unknown'
+    return consume_rate_limit(f"ratelimit:{key_prefix}:{client_ip}", max_requests, window_seconds)
+
+def check_user_model_rate_limit():
+    return consume_rate_limit(f"ratelimit:model:user:{current_user.id}", 60, 3600)
+
+def reject_if_active_task():
+    if redis_client.get(f"user:{current_user.id}:active_task"):
+        raise ActiveTaskError()
 
 CSRF_EXEMPT_ENDPOINTS = {
     'static',
@@ -162,17 +229,20 @@ def protect_csrf():
     if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and request.endpoint not in CSRF_EXEMPT_ENDPOINTS:
         session_token = session.get('csrf_token')
         request_token = request.form.get('csrf_token') or request.headers.get('X-CSRFToken') or request.headers.get('X-CSRF-Token')
-        if not session_token or not request_token or request_token != session_token:
+        if not session_token or not request_token or not secrets.compare_digest(request_token, session_token):
             return jsonify({'error': 'CSRF validation failed'}), 400
 
 @app.after_request
 def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'same-origin'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['Permissions-Policy'] = 'microphone=(self), camera=(), geolocation=()'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
     csp = (
         "default-src 'self'; "
-        "script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
+        "script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com 'unsafe-inline'; "
         "style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline'; "
         "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
         "img-src 'self' data:; "
@@ -183,6 +253,8 @@ def add_security_headers(response):
         "form-action 'self';"
     )
     response.headers['Content-Security-Policy'] = csp
+    if current_user.is_authenticated or request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store'
     return response
 
 # --- Models ---
@@ -269,14 +341,19 @@ def notify_admin_unlock(username):
     admin_email = os.getenv('MAIL_ADMIN_RECIPIENT', 'minashin.official@gmail.com')
     body = f"ユーザー '{username}' からアカウントのロック解除申請がありました。\n管理パネルまたはデータベースから確認してください。"
     msg = MIMEText(body)
-    msg['Subject'] = f"[stt-gemini] ロック解除申請: {username}"
+    safe_username = username.replace('\r', '').replace('\n', '')
+    msg['Subject'] = f"[stt-gemini] ロック解除申請: {safe_username}"
     msg['From'] = os.getenv('MAIL_DEFAULT_SENDER', 'noreply@stt-gemini.minashin1120.com')
     msg['To'] = admin_email
 
     try:
         # Exim4 (sendmail互換コマンド) を使用
-        process = subprocess.Popen(['/usr/sbin/sendmail', '-t', '-oi'], stdin=subprocess.PIPE)
-        process.communicate(msg.as_bytes())
+        subprocess.run(
+            ['/usr/sbin/sendmail', '-t', '-oi'],
+            input=msg.as_bytes(),
+            check=True,
+            timeout=15,
+        )
     except Exception as e:
         logger.error(f"Exim4 email notification failed: {e}")
 
@@ -301,27 +378,21 @@ def get_audio_metadata(filename, mimetype=None):
     safe_name = secure_filename(filename or "")
     _, ext = os.path.splitext(safe_name)
     ext = ext.lower()
+    return (ext, ALLOWED_AUDIO_EXTENSIONS[ext]) if ext in ALLOWED_AUDIO_EXTENSIONS else (None, None)
 
-    ext_to_mime = {
-        '.mp3': 'audio/mpeg',
-        '.wav': 'audio/wav',
-        '.m4a': 'audio/mp4',
-        '.mp4': 'audio/mp4',
-        '.webm': 'audio/webm',
-        '.ogg': 'audio/ogg',
-    }
+def get_thinking_level(value):
+    level = str(value or 'LOW').upper()
+    return level if level in ALLOWED_THINKING_LEVELS else 'LOW'
 
-    if ext not in ext_to_mime:
-        ext = '.mp3'
-
-    return ext, ext_to_mime[ext]
+def generate_audio_filename(user_id, extension):
+    return f"user_{user_id}_{time.time_ns()}_{secrets.token_hex(4)}{extension}"
 
 def resolve_user_upload_path(filename, user_id):
     if not filename or not filename.startswith(f"user_{user_id}_"):
         return None
 
-    upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
-    full_path = os.path.abspath(os.path.join(upload_dir, filename))
+    upload_dir = os.path.realpath(app.config['UPLOAD_FOLDER'])
+    full_path = os.path.realpath(os.path.join(upload_dir, filename))
     if not full_path.startswith(upload_dir + os.sep):
         return None
     return full_path
@@ -480,19 +551,25 @@ def register():
             flash('不審なアクセスが検知されました。ブラウザの設定を確認してください。')
             return redirect(url_for('register'))
         
-        username = request.form.get('username')
+        username = (request.form.get('username') or '').strip()
         password = request.form.get('password')
-        if not username or len(username) < 2:
-            flash('ユーザー名は2文字以上で入力してください。')
+        if len(username) < 2 or len(username) > 150:
+            flash('ユーザー名は2〜150文字で入力してください。')
             return redirect(url_for('register'))
-        if not password or len(password) < 8:
-            flash('パスワードは8文字以上で入力してください。')
+        if not password or len(password) < 8 or len(password) > 1024:
+            flash('パスワードは8〜1024文字で入力してください。')
             return redirect(url_for('register'))
         if User.query.filter_by(username=username).first():
             flash('ユーザー名が重複しています。')
             return redirect(url_for('register'))
         new_user = User(username=username, password=generate_password_hash(password))
-        db.session.add(new_user); db.session.commit()
+        db.session.add(new_user)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash('ユーザー名が重複しています。')
+            return redirect(url_for('register'))
         login_user(new_user, remember=True)
         return redirect(url_for('settings'))
     
@@ -546,7 +623,7 @@ def is_atypical_client(req):
         csrf_token = session.get('csrf_token')
         # Expecting 'valid_<csrf_token>' set by client-side JS
         if not js_challenge or js_challenge != f"valid_{csrf_token}":
-            logger.warning(f"Atypical client: JS Challenge failed or missing. Expected 'valid_{csrf_token}', got '{js_challenge}'")
+            logger.warning("Atypical client: JS challenge failed or missing")
             return True
 
         # Honey-pot field check (Highly sensitive)
@@ -569,18 +646,23 @@ def login():
 
         # フォーム表示からの経過時間をチェック
         load_time = session.pop('_form_load_time', 0)
-        user = User.query.filter_by(username=request.form.get('username')).first()
         
         if time.time() - load_time < 0.5:
             return "Access Denied: Unnatural submission speed.", 403
 
-        username = request.form.get('username')
-        password = request.form.get('password')
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
         
         # 不審なクライアントチェック (ここでは拒否するが永続ロックはしない)
         if is_atypical_client(request):
             flash('不審なクライアントからのアクセスが検知されました。ブラウザの設定を確認してください。')
             return redirect(url_for('login'))
+
+        if len(username) > 150 or len(password) > 1024:
+            flash('ログイン失敗。')
+            return redirect(url_for('login'))
+
+        user = User.query.filter_by(username=username).first()
 
         # 定数時間比較: ユーザーが存在しない場合もダミーハッシュで比較し、タイミング差をなくす
         if user:
@@ -633,7 +715,8 @@ def request_unlock():
 
     return render_template('request_unlock.html')
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
+@login_required
 def logout():
     session.clear()
     logout_user()
@@ -652,13 +735,17 @@ def settings():
         xai_api_key = request.form.get('xai_api_key')
         retention_minutes = request.form.get('retention_minutes')
         
-        if api_key:
+        if api_key and len(api_key) <= MAX_API_KEY_LENGTH:
             current_user.set_api_key(api_key)
             flash('Gemini APIキーを保存しました。')
+        elif api_key:
+            flash('Gemini APIキーが長すぎます。')
         
-        if xai_api_key:
+        if xai_api_key and len(xai_api_key) <= MAX_API_KEY_LENGTH:
             current_user.set_xai_api_key(xai_api_key)
             flash('xAI APIキーを保存しました。')
+        elif xai_api_key:
+            flash('xAI APIキーが長すぎます。')
         
         if retention_minutes is not None:
             try:
@@ -672,9 +759,11 @@ def settings():
                 flash('保存期間には数値を入力してください。')
         
         db.session.commit()
-    api_key_value = current_user.get_api_key() or ''
-    xai_api_key_value = current_user.get_xai_api_key() or ''
-    return render_template('settings.html', has_key=current_user.encrypted_api_key is not None, api_key=api_key_value, has_xai_key=current_user.encrypted_xai_api_key is not None, xai_api_key=xai_api_key_value)
+    return render_template(
+        'settings.html',
+        has_key=current_user.encrypted_api_key is not None,
+        has_xai_key=current_user.encrypted_xai_api_key is not None,
+    )
 
 @app.route('/api/check_api_keys', methods=['GET'])
 @login_required
@@ -703,12 +792,16 @@ def save_api_key():
     api_key = data.get('api_key', '').strip()
     if not api_key:
         return jsonify({'error': 'APIキーを入力してください'}), 400
+    if len(api_key) > MAX_API_KEY_LENGTH:
+        return jsonify({'error': 'APIキーが長すぎます'}), 400
     if key_type == 'xai':
         current_user.set_xai_api_key(api_key)
         flash('xAI APIキーを保存しました。')
-    else:
+    elif key_type == 'gemini':
         current_user.set_api_key(api_key)
         flash('Gemini APIキーを保存しました。')
+    else:
+        return jsonify({'error': 'APIキー種別が不正です'}), 400
     db.session.commit()
     return jsonify({'success': True})
 
@@ -722,15 +815,23 @@ def delete_account():
         if os.path.exists(app.config['UPLOAD_FOLDER']):
             for f in os.listdir(app.config['UPLOAD_FOLDER']):
                 if f.startswith(user_prefix):
-                    try: os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
-                    except: pass
+                    try:
+                        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
+                    except OSError as file_error:
+                        logger.warning(f"Account file removal failed: {file_error}")
+        shutil.rmtree(get_user_chunks_root(user_id), ignore_errors=True)
         
         # 2. データベースレコードの削除 (History, WordSet, User)
         History.query.filter_by(user_id=user_id).delete()
-        WordSet.query.filter_by(user_id=user_id).delete()
+        for word_set in WordSet.query.filter_by(user_id=user_id).all():
+            db.session.delete(word_set)
         user = db.session.get(User, user_id)
         db.session.delete(user)
         db.session.commit()
+
+        for task_id in redis_client.smembers(f"user:{user_id}:tasks") or set():
+            delete_task(task_id)
+        redis_client.delete(f"user:{user_id}:tasks", f"user:{user_id}:active_task")
         
         session.clear()
         logout_user()
@@ -821,7 +922,7 @@ def delete_word(word_id):
 # --- Background Task Processor (writes progress to Redis) ---
 def process_gemini_background(task_id, api_key, payload, user_id, action_type, input_summary, model="gemini-3.5-flash"):
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
         
         full_thought = ""
         full_text = ""
@@ -832,7 +933,13 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
         
         for attempt in range(max_retries + 1):
             try:
-                response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload, stream=True, timeout=(10, None))
+                response = requests.post(
+                    url,
+                    headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+                    json=payload,
+                    stream=True,
+                    timeout=(10, 600),
+                )
                 
                 if response.status_code == 429 and attempt < max_retries:
                     update_task(task_id, status='running')
@@ -966,6 +1073,9 @@ def build_transcription_prompt(history_context, word_list_context, mode_label, a
 @app.route('/transcribe', methods=['POST'])
 @login_required
 def transcribe():
+    reject_if_active_task()
+    if not check_user_model_rate_limit():
+        return jsonify({'error': '処理回数が上限を超えました。時間をおいて再度お試しください。'}), 429
     model = validate_model(request.form.get('model', 'gemini-3.5-flash'))
     
     file = request.files.get('audio_file')
@@ -973,6 +1083,8 @@ def transcribe():
 
     # 受信ファイル名は必ず安全化する。拡張子は許可済みのものだけ使う。
     ext, mime_type = get_audio_metadata(file.filename, file.mimetype)
+    if not ext:
+        return jsonify({'error': '対応していない音声形式です'}), 400
     
     # 新規録音の場合、以前の履歴と音声ファイルをクリアしてから処理する
     if not is_truthy(request.form.get('is_append')):
@@ -989,7 +1101,7 @@ def transcribe():
         session.pop('last_audio_file', None)
         session.pop('last_audio_mime', None)
     
-    filename = f"user_{current_user.id}_{int(time.time())}{ext}"
+    filename = generate_audio_filename(current_user.id, ext)
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
         
@@ -1037,7 +1149,7 @@ def transcribe():
             {"text": full_prompt},
             {"inline_data": {"mime_type": mime_type, "data": audio_b64}}
         ]}],
-        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": request.form.get('thinking_level', 'LOW').upper()}}
+        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(request.form.get('thinking_level'))}}
     }
     
     task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
@@ -1052,13 +1164,16 @@ def transcribe():
 @app.route('/reanalyze', methods=['POST'])
 @login_required
 def reanalyze():
+    reject_if_active_task()
+    if not check_user_model_rate_limit():
+        return jsonify({'error': '処理回数が上限を超えました。時間をおいて再度お試しください。'}), 429
     data = request.get_json(silent=True) or {}
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
     
     filename = session.get('last_audio_file')
     if not filename: return jsonify({'error': 'ファイルなし'}), 400
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    if not os.path.exists(filepath): return jsonify({'error': '期限切れ'}), 400
+    filepath = resolve_user_upload_path(filename, current_user.id)
+    if not filepath or not os.path.exists(filepath): return jsonify({'error': '期限切れ'}), 400
 
     if model == 'grok-stt':
         api_key = current_user.get_xai_api_key()
@@ -1102,7 +1217,7 @@ def reanalyze():
             {"text": prompt},
             {"inline_data": {"mime_type": session.get('last_audio_mime') or 'audio/mpeg', "data": audio_b64}}
         ]}],
-        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
+        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
     thread = threading.Thread(
@@ -1116,9 +1231,18 @@ def reanalyze():
 @app.route('/improve', methods=['POST'])
 @login_required
 def improve():
+    reject_if_active_task()
+    if not check_user_model_rate_limit():
+        return jsonify({'error': '処理回数が上限を超えました。時間をおいて再度お試しください。'}), 429
     api_key, data = current_user.get_api_key(), request.get_json(silent=True) or {}
-    text = data.get('text')
-    instruction = data.get('instruction')
+    if not api_key:
+        return jsonify({'error': 'API Key not set'}), 400
+    text = data.get('text') or ''
+    instruction = data.get('instruction') or ''
+    if not text or not instruction:
+        return jsonify({'error': 'テキストと指示を入力してください'}), 400
+    if len(text) > MAX_TEXT_LENGTH or len(instruction) > MAX_INSTRUCTION_LENGTH:
+        return jsonify({'error': '入力が長すぎます'}), 413
     use_audio = data.get('use_audio', False)
     
     # 手動修正を最新の履歴に反映（コンテキスト整合性のため）
@@ -1149,8 +1273,8 @@ def improve():
     if use_audio:
         filename = session.get('last_audio_file')
         if filename:
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            if os.path.exists(filepath):
+            filepath = resolve_user_upload_path(filename, current_user.id)
+            if filepath and os.path.exists(filepath):
                 with open(filepath, "rb") as f:
                     audio_b64 = base64.b64encode(f.read()).decode('utf-8')
                 parts.append({"text": "Reference Audio:"})
@@ -1158,7 +1282,7 @@ def improve():
 
     payload = {
         "contents": [{"parts": parts}],
-        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": data.get('thinking_level', 'LOW').upper()}}
+        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
     if model == 'grok-stt':
@@ -1229,13 +1353,69 @@ def sanitize_upload_id(upload_id):
         return None
     return sanitized
 
+def parse_bounded_int(value, minimum, maximum):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if minimum <= parsed <= maximum else None
+
+def get_user_chunks_root(user_id):
+    return os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', f'user_{user_id}')
+
+def get_chunks_usage(root):
+    total = 0
+    if not os.path.isdir(root):
+        return total
+    for dirpath, _, filenames in os.walk(root):
+        for name in filenames:
+            if not (name.startswith('chunk_') and name[6:].isdigit()):
+                continue
+            try:
+                total += os.path.getsize(os.path.join(dirpath, name))
+            except OSError:
+                continue
+    return total
+
+def ensure_chunk_upload(upload_id, total_chunks, original_filename, user_id):
+    ext, _ = get_audio_metadata(original_filename)
+    if not ext:
+        return None, '対応していない音声形式です'
+
+    user_root = get_user_chunks_root(user_id)
+    os.makedirs(user_root, mode=0o700, exist_ok=True)
+    chunks_dir = os.path.join(user_root, upload_id)
+    with open(os.path.join(user_root, '.lock'), 'a+', encoding='utf-8') as user_lock:
+        fcntl.flock(user_lock, fcntl.LOCK_EX)
+        if not os.path.isdir(chunks_dir):
+            active = sum(os.path.isdir(os.path.join(user_root, name)) for name in os.listdir(user_root))
+            if active >= MAX_INCOMPLETE_UPLOADS:
+                return None, '同時アップロード数が上限に達しています'
+            os.makedirs(chunks_dir, mode=0o700, exist_ok=True)
+
+    metadata_path = os.path.join(chunks_dir, 'metadata.json')
+    expected = {'total_chunks': total_chunks, 'extension': ext}
+    with open(os.path.join(chunks_dir, '.lock'), 'a+', encoding='utf-8') as upload_lock:
+        fcntl.flock(upload_lock, fcntl.LOCK_EX)
+        if not os.path.exists(metadata_path):
+            with open(metadata_path, 'w', encoding='utf-8') as metadata_file:
+                json.dump(expected, metadata_file)
+        else:
+            try:
+                with open(metadata_path, encoding='utf-8') as metadata_file:
+                    if json.load(metadata_file) != expected:
+                        return None, 'アップロード情報が一致しません'
+            except (OSError, ValueError, TypeError):
+                return None, 'アップロード情報が破損しています'
+    return chunks_dir, None
+
 @app.route('/api/upload_chunk', methods=['POST'])
 @login_required
 def upload_chunk():
     upload_id = request.form.get('upload_id')
     chunk_index = request.form.get('chunk_index')
     total_chunks = request.form.get('total_chunks')
-    original_filename = request.form.get('original_filename')
+    original_filename = request.form.get('original_filename') or ''
     chunk_file = request.files.get('chunk')
 
     upload_id = sanitize_upload_id(upload_id)
@@ -1245,22 +1425,60 @@ def upload_chunk():
     if not all([chunk_index, total_chunks, chunk_file]):
         return jsonify({'error': 'Missing fields'}), 400
 
-    chunks_dir = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', upload_id)
-    os.makedirs(chunks_dir, exist_ok=True)
+    total_chunks = parse_bounded_int(total_chunks, 1, MAX_CHUNKS)
+    if total_chunks is None:
+        return jsonify({'error': 'Invalid total_chunks'}), 400
+    chunk_index = parse_bounded_int(chunk_index, 0, total_chunks - 1)
+    if chunk_index is None:
+        return jsonify({'error': 'Invalid chunk_index'}), 400
+    if not check_rate_limit(f'upload_chunk:user:{current_user.id}', 240, 60):
+        return jsonify({'error': 'アップロード頻度が上限を超えました'}), 429
 
-    chunk_path = os.path.join(chunks_dir, f'chunk_{int(chunk_index):06d}')
-    chunk_file.save(chunk_path)
+    chunks_dir, error = ensure_chunk_upload(
+        upload_id, total_chunks, original_filename, current_user.id
+    )
+    if error:
+        return jsonify({'error': error}), 400
 
-    return jsonify({'success': True, 'chunk_index': int(chunk_index)})
+    chunk_path = os.path.join(chunks_dir, f'chunk_{chunk_index:06d}')
+    temp_path = f"{chunk_path}.{secrets.token_hex(4)}.tmp"
+    try:
+        chunk_file.save(temp_path)
+        chunk_size = os.path.getsize(temp_path)
+        if chunk_size <= 0 or chunk_size > MAX_CHUNK_BYTES:
+            return jsonify({'error': 'Invalid chunk size'}), 413
+        user_root = get_user_chunks_root(current_user.id)
+        with open(os.path.join(user_root, '.lock'), 'a+', encoding='utf-8') as user_lock:
+            fcntl.flock(user_lock, fcntl.LOCK_EX)
+            with open(os.path.join(chunks_dir, '.lock'), 'a+', encoding='utf-8') as upload_lock:
+                fcntl.flock(upload_lock, fcntl.LOCK_EX)
+                if os.path.exists(os.path.join(chunks_dir, '.complete')):
+                    return jsonify({'error': 'アップロードは結合処理中です'}), 409
+                old_size = os.path.getsize(chunk_path) if os.path.exists(chunk_path) else 0
+                projected_usage = get_chunks_usage(user_root) - old_size + chunk_size
+                if projected_usage > MAX_XAI_AUDIO_BYTES:
+                    return jsonify({'error': 'アップロード容量が上限を超えました'}), 413
+                os.replace(temp_path, chunk_path)
+    finally:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+
+    return jsonify({'success': True, 'chunk_index': chunk_index})
 
 @app.route('/api/upload_complete', methods=['POST'])
 @login_required
 def upload_complete():
+    reject_if_active_task()
+    if not check_user_model_rate_limit():
+        return jsonify({'error': '処理回数が上限を超えました。時間をおいて再度お試しください。'}), 429
     model = validate_model(request.form.get('model', 'gemini-3.5-flash'))
 
     upload_id = request.form.get('upload_id')
     total_chunks = request.form.get('total_chunks')
-    original_filename = request.form.get('original_filename')
+    original_filename = request.form.get('original_filename') or ''
 
     upload_id = sanitize_upload_id(upload_id)
     if not upload_id:
@@ -1269,8 +1487,14 @@ def upload_complete():
     if not total_chunks:
         return jsonify({'error': 'Missing fields'}), 400
 
-    total_chunks = int(total_chunks)
-    chunks_dir = os.path.join(app.config['UPLOAD_FOLDER'], '_chunks', upload_id)
+    total_chunks = parse_bounded_int(total_chunks, 1, MAX_CHUNKS)
+    if total_chunks is None:
+        return jsonify({'error': 'Invalid total_chunks'}), 400
+    chunks_dir, error = ensure_chunk_upload(
+        upload_id, total_chunks, original_filename, current_user.id
+    )
+    if error:
+        return jsonify({'error': error}), 400
 
     # Verify all chunks present
     for i in range(total_chunks):
@@ -1279,8 +1503,30 @@ def upload_complete():
             shutil.rmtree(chunks_dir, ignore_errors=True)
             return jsonify({'error': f'Missing chunk {i}'}), 400
 
-    ext, mime_type = get_audio_metadata(original_filename or 'audio.mp3')
-    filename = f"user_{current_user.id}_{int(time.time())}{ext}"
+    with open(os.path.join(chunks_dir, '.lock'), 'a+', encoding='utf-8') as upload_lock:
+        fcntl.flock(upload_lock, fcntl.LOCK_EX)
+        complete_marker = os.path.join(chunks_dir, '.complete')
+        try:
+            with open(complete_marker, 'x', encoding='utf-8'):
+                pass
+        except FileExistsError:
+            return jsonify({'error': 'アップロードは結合処理中です'}), 409
+
+    ext, mime_type = get_audio_metadata(original_filename)
+    max_audio_bytes = MAX_XAI_AUDIO_BYTES if model == 'grok-stt' else MAX_GEMINI_AUDIO_BYTES
+    total_size = 0
+    for i in range(total_chunks):
+        chunk_path = os.path.join(chunks_dir, f'chunk_{i:06d}')
+        chunk_size = os.path.getsize(chunk_path)
+        if chunk_size <= 0 or chunk_size > MAX_CHUNK_BYTES:
+            shutil.rmtree(chunks_dir, ignore_errors=True)
+            return jsonify({'error': 'Invalid chunk size'}), 413
+        total_size += chunk_size
+        if total_size > max_audio_bytes:
+            shutil.rmtree(chunks_dir, ignore_errors=True)
+            return jsonify({'error': '音声ファイルが上限サイズを超えています'}), 413
+
+    filename = generate_audio_filename(current_user.id, ext)
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
@@ -1292,7 +1538,7 @@ def upload_complete():
             for i in range(total_chunks):
                 chunk_path = os.path.join(chunks_dir, f'chunk_{i:06d}')
                 with open(chunk_path, 'rb') as infile:
-                    outfile.write(infile.read())
+                    shutil.copyfileobj(infile, outfile, length=1024 * 1024)
     except Exception as e:
         shutil.rmtree(chunks_dir, ignore_errors=True)
         if os.path.exists(filepath):
@@ -1358,7 +1604,7 @@ def upload_complete():
             {"text": full_prompt},
             {"inline_data": {"mime_type": mime_type, "data": audio_b64}}
         ]}],
-        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": request.form.get('thinking_level', 'LOW').upper()}}
+        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(request.form.get('thinking_level'))}}
     }
 
     task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
@@ -1510,14 +1756,7 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
             update_task(task_id, status='error', error='xAI APIのレート制限に達しました。時間をおいて再度お試しください。')
             return
         elif response.status_code != 200:
-            error_msg = f'xAI STT API Error {response.status_code}'
-            try:
-                err_data = response.json()
-                if 'error' in err_data:
-                    error_msg = f'xAI STT Error: {err_data["error"]}'
-            except:
-                pass
-            update_task(task_id, status='error', error=error_msg)
+            update_task(task_id, status='error', error=f'xAI STT API Error {response.status_code}')
             return
 
         result = response.json()
@@ -1595,4 +1834,4 @@ if __name__ == '__main__':
         db.create_all()
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
-    app.run(host='0.0.0.0', port=8003)
+    app.run(host='127.0.0.1', port=8003)

@@ -35,6 +35,8 @@ test.mp3
 .sudo_as_admin_successful
 .codex/
 .gemini/
+.grok/
+.bashrc.bak.*
 .npm/
 .cache/
 .local/
