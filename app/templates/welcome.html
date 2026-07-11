@@ -3,43 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini 3.0 文字起こし - 高性能AI議事録ツール</title>
+    <title>Voxcribe | 声を、伝わる文章へ。</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" integrity="sha384-QuGBSgV5Im3DzL2z+8Ko9/hqNy/N0O7zwvXAtfd1MvPKWa/UbeLV65cfm4BV5Wgq" crossorigin="anonymous">
-    <style>
-        .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 100px 0; }
-        .feature-icon { font-size: 3rem; color: #764ba2; }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="/static/css/style.css?v=4" rel="stylesheet">
 </head>
-<body>
-    <div class="hero text-center">
-        <div class="container">
-            <h1 class="display-3 fw-bold mb-4">AI 文字起こし Pro</h1>
-            <p class="lead mb-5">Gemini 3.0 Flash Previewの圧倒的な推論能力で、<br>あなたの声を正確にテキスト化します。</p>
-            <div>
-                <a href="/login" class="btn btn-light btn-lg px-5 me-3">ログイン</a>
-                <a href="/register" class="btn btn-outline-light btn-lg px-5">新規登録</a>
-            </div>
+<body class="landing-body">
+    <div class="landing-glow landing-glow-one" aria-hidden="true"></div>
+    <div class="landing-glow landing-glow-two" aria-hidden="true"></div>
+    <nav class="landing-nav container">
+        <a class="brand-lockup" href="/welcome">
+            <span class="brand-mark"><i class="bi bi-soundwave"></i></span>
+            <span><strong>Voxcribe</strong><small>AI Transcription</small></span>
+        </a>
+        <div class="d-flex align-items-center gap-2">
+            <a href="/login" class="btn btn-link landing-login">ログイン</a>
+            <a href="/register" class="btn btn-light landing-signup">無料で始める <i class="bi bi-arrow-up-right"></i></a>
         </div>
-    </div>
-    <div class="container py-5">
-        <div class="row g-4 text-center">
-            <div class="col-md-4">
-                <i class="bi bi-cpu feature-icon"></i>
-                <h3>高度な推論</h3>
-                <p>AIが文脈を読み取り、同音異義語も正しく変換。推論プロセスも確認可能です。</p>
+    </nav>
+
+    <main>
+        <section class="landing-hero container">
+            <div class="hero-copy">
+                <div class="hero-badge"><span></span>AI-powered transcription</div>
+                <h1>声を、<br><em>伝わる文章</em>へ。</h1>
+                <p>高精度なAI文字起こしと文章改善を、ひとつのシンプルなワークスペースで。録音した瞬間から、使えるテキストが生まれます。</p>
+                <div class="hero-actions">
+                    <a href="/register" class="btn btn-primary btn-lg">無料で始める <i class="bi bi-arrow-right"></i></a>
+                    <a href="/login" class="btn btn-outline-light btn-lg"><i class="bi bi-play-circle"></i> ログイン</a>
+                </div>
+                <div class="hero-trust"><span><i class="bi bi-check-circle-fill"></i> 暗号化保存</span><span><i class="bi bi-check-circle-fill"></i> 自動データ削除</span><span><i class="bi bi-check-circle-fill"></i> 複数AIモデル</span></div>
             </div>
-            <div class="col-md-4">
-                <i class="bi bi-magic feature-icon"></i>
-                <h3>テキスト改善</h3>
-                <p>起こしたテキストに対して「要約して」「丁寧にして」と指示するだけでAIが書き換えます。</p>
+
+            <div class="product-preview" aria-label="Voxcribeの文字起こし画面イメージ">
+                <div class="preview-topbar"><div class="preview-dots"><i></i><i></i><i></i></div><span>New transcription</span><i class="bi bi-three-dots"></i></div>
+                <div class="preview-body">
+                    <div class="preview-wave"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                    <div class="preview-timer"><span class="record-dot"></span><strong>00:24</strong><small>Recording</small></div>
+                    <div class="preview-transcript"><span>TRANSCRIPT</span><p>本日のミーティングでは、次のプロジェクトの方針について確認します。</p><p class="preview-fade">まずは現在の進捗から共有をお願いします。</p></div>
+                </div>
+                <div class="floating-note"><i class="bi bi-stars"></i><span><small>AI enhancement</small><strong>文章を自然に整えました</strong></span><i class="bi bi-check-circle-fill"></i></div>
             </div>
-            <div class="col-md-4">
-                <i class="bi bi-shield-lock feature-icon"></i>
-                <h3>安全な管理</h3>
-                <p>APIキーは暗号化保存され、音声ファイルは10分後にサーバーから自動消去されます。</p>
-            </div>
-        </div>
-    </div>
+        </section>
+
+        <section class="feature-strip container">
+            <article><span>01</span><i class="bi bi-soundwave"></i><div><h2>高精度な文字起こし</h2><p>文脈を読み取り、専門用語にも対応。</p></div></article>
+            <article><span>02</span><i class="bi bi-stars"></i><div><h2>AI文章改善</h2><p>要約や書き換えもワンクリック。</p></div></article>
+            <article><span>03</span><i class="bi bi-shield-check"></i><div><h2>安心のデータ管理</h2><p>暗号化と自動削除で安全に。</p></div></article>
+        </section>
+    </main>
 </body>
 </html>

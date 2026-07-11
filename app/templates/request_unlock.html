@@ -1,8 +1,12 @@
 {% extends "base.html" %}
+{% block title %}ロック解除 | Voxcribe{% endblock %}
 {% block content %}
-<div class="card shadow-sm">
+<div class="auth-layout">
+<div class="card auth-card">
     <div class="card-body">
-        <h3 class="card-title mb-3 text-danger">アカウントロック解除申請</h3>
+        <div class="auth-icon auth-icon-danger"><i class="bi bi-shield-exclamation"></i></div>
+        <span class="eyebrow">Account recovery</span>
+        <h1 class="auth-title">ロック解除申請</h1>
         <p class="small text-muted mb-4">不審な操作が検知されたため、アカウントが一時的に制限されています。解除を希望される場合は、ユーザー名を入力して申請してください。</p>
         
         <form method="POST">
@@ -11,7 +15,7 @@
                 <input type="text" name="_honey_field" tabindex="-1" autocomplete="off">
             </div>
             <div class="mb-3">
-                <label>ユーザー名</label>
+                <label class="form-label">ユーザー名</label>
                 <input type="text" name="username" class="form-control" placeholder="解除を希望するユーザー名" required>
             </div>
             
@@ -25,6 +29,7 @@
             <a href="/login" class="text-decoration-none small text-secondary">ログイン画面へ戻る</a>
         </div>
     </div>
+</div>
 </div>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {% endblock %}
