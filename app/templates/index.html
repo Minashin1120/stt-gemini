@@ -101,14 +101,17 @@
                     </div>
                 </div>
 
-                <ul class="nav nav-pills justify-content-center mb-4 gap-2" id="inputMethodTabs" role="tablist">
+                <div class="input-method-switcher mb-4">
+                <div class="input-method-label"><i class="bi bi-arrow-left-right"></i> 入力方法を選択</div>
+                <ul class="nav nav-pills justify-content-center mb-0" id="inputMethodTabs" role="tablist" aria-label="入力方法">
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link active rounded-pill border" id="record-tab" data-bs-toggle="pill" data-bs-target="#recordMode" type="button" role="tab"><i class="bi bi-mic-fill me-1"></i> 録音</button>
+                        <button class="nav-link active" id="record-tab" data-bs-toggle="pill" data-bs-target="#recordMode" type="button" role="tab" aria-controls="recordMode" aria-selected="true"><span class="tab-icon"><i class="bi bi-mic-fill"></i></span><span>録音</span><i class="bi bi-check-circle-fill selected-mark"></i></button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link rounded-pill border" id="upload-tab" data-bs-toggle="pill" data-bs-target="#uploadMode" type="button" role="tab"><i class="bi bi-cloud-arrow-up-fill me-1"></i> アップロード</button>
+                        <button class="nav-link" id="upload-tab" data-bs-toggle="pill" data-bs-target="#uploadMode" type="button" role="tab" aria-controls="uploadMode" aria-selected="false"><span class="tab-icon"><i class="bi bi-cloud-arrow-up-fill"></i></span><span>アップロード</span><i class="bi bi-check-circle-fill selected-mark"></i></button>
                     </li>
                 </ul>
+                </div>
 
                 <div class="tab-content" id="inputMethodTabsContent">
                     <!-- 録音モード -->
