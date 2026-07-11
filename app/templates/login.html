@@ -1,30 +1,36 @@
 {% extends "base.html" %}
+{% block title %}ログイン | Voxcribe{% endblock %}
 {% block content %}
-<div class="card shadow-sm">
+<div class="auth-layout">
+<div class="card auth-card">
     <div class="card-body">
-        <h3 class="card-title mb-3">ログイン</h3>
+        <div class="auth-icon"><i class="bi bi-person-check"></i></div>
+        <span class="eyebrow">Welcome back</span>
+        <h1 class="auth-title">おかえりなさい</h1>
+        <p class="auth-lead">続きから文字起こしを始めましょう。</p>
         <form method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div style="display:none;" aria-hidden="true">
                 <input type="text" name="_honey_field" tabindex="-1" autocomplete="off">
             </div>
             <div class="mb-3">
-                <label>ユーザー名</label>
+                <label class="form-label">ユーザー名</label>
                 <input type="text" name="username" class="form-control" required>
             </div>
             <div class="mb-3">
-                <label>パスワード</label>
+                <label class="form-label">パスワード</label>
                 <input type="password" name="password" class="form-control" required>
             </div>
             <!-- Cloudflare Turnstile -->
             <div class="cf-turnstile mb-3" data-sitekey="{{ turnstile_site_key }}"></div>
             
-            <button type="submit" class="btn btn-primary w-100 mb-3">ログイン</button>
+            <button type="submit" class="btn btn-primary w-100 mb-3">ログイン <i class="bi bi-arrow-right"></i></button>
             <div class="text-center">
                 <a href="/request_unlock" class="text-decoration-none small text-danger">アカウントがロックされましたか？ 解除を申請する</a>
             </div>
         </form>
     </div>
+</div>
 </div>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {% endblock %}

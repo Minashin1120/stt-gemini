@@ -1,8 +1,16 @@
 {% extends "base.html" %}
+{% block title %}設定 | Voxcribe{% endblock %}
 {% block content %}
-<div class="card shadow-sm mb-4">
+<div class="settings-heading">
+    <span class="eyebrow">Preferences</span>
+    <h1>設定</h1>
+    <p>モデル接続、データ保持、外観を管理します。</p>
+</div>
+<div class="settings-grid">
+<div>
+<div class="card settings-card mb-4">
     <div class="card-header fw-bold">
-        API設定
+        <span class="settings-card-icon"><i class="bi bi-key"></i></span><span>APIとデータ</span>
     </div>
     <div class="card-body">
         <p class="small text-muted">APIキーを入力してください。キーは安全に暗号化されて保存されます。</p>
@@ -32,14 +40,14 @@
                 <input type="number" name="retention_minutes" class="form-control" value="{{ current_user.retention_minutes }}" min="1" max="1440" required>
                 <div class="form-text">録音データや会話履歴を保持する時間（分）を設定します。この時間を過ぎると自動的に削除されます。</div>
             </div>
-            <button type="submit" class="btn btn-success">設定を保存</button>
+            <button type="submit" class="btn btn-primary">設定を保存 <i class="bi bi-check2"></i></button>
         </form>
     </div>
 </div>
 
-<div class="card shadow-sm">
+<div class="card settings-card">
     <div class="card-header fw-bold">
-        アプリケーション設定
+        <span class="settings-card-icon"><i class="bi bi-palette"></i></span><span>外観</span>
     </div>
     <div class="card-body">
         <div class="mb-3">
@@ -60,15 +68,26 @@
         <button id="saveThemeBtn" class="btn btn-primary">デザイン設定を保存</button>
     </div>
 </div>
+</div>
 
-<div class="card shadow-sm border-danger mt-4">
-    <div class="card-header fw-bold bg-danger text-white">
-        危険な操作
+<div>
+<div class="card settings-card settings-side-card">
+    <div class="card-body">
+        <div class="settings-illustration"><i class="bi bi-shield-check"></i></div>
+        <h2>プライバシーを優先</h2>
+        <p class="text-muted small">APIキーは暗号化され、音声と履歴は設定した保持時間を過ぎると自動で削除されます。</p>
+    </div>
+</div>
+<div class="card danger-zone mt-4">
+    <div class="card-header fw-bold">
+        <i class="bi bi-exclamation-triangle me-2"></i>危険な操作
     </div>
     <div class="card-body">
         <p class="text-danger small fw-bold">この操作は取り消せません。アカウント、履歴、設定、保存されている音声データがすべて完全に削除されます。</p>
         <button id="deleteAccountBtn" class="btn btn-outline-danger w-100">アカウントを完全に削除する</button>
     </div>
+</div>
+</div>
 </div>
 
 <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 2000">

@@ -78,14 +78,23 @@
     </div>
 </div>
 
-<div class="row">
+<div class="workspace-heading">
+    <div>
+        <span class="eyebrow">Transcription studio</span>
+        <h1>音声を、伝わる文章へ。</h1>
+        <p>録音・文字起こし・文章改善を、ひとつのワークスペースで。</p>
+    </div>
+    <div class="workspace-state"><span class="state-dot"></span>システム準備完了</div>
+</div>
+
+<div class="row g-4 workspace-grid">
     <!-- メイン操作エリア (左側/上部) -->
-    <div class="col-lg-8">
-        <div class="card shadow-sm mb-4 border-0">
+    <div class="col-xl-8">
+        <div class="card operation-card mb-4 border-0">
             <div class="card-body text-center">
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h3 class="text-primary fw-bold mb-0">音声入力</h3>
-                    <div class="d-flex gap-2">
+                    <div class="section-title text-start"><span class="section-icon"><i class="bi bi-mic"></i></span><div><span>INPUT</span><h2>音声入力</h2></div></div>
+                    <div class="d-flex gap-2 utility-actions">
                         <button id="btnWordSet" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#wordSetModal" onclick="loadWordSetStatus()"><i class="bi bi-journal-text"></i> 単語リスト</button>
                         <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#fileManagerModal" onclick="loadFileMetadata()"><i class="bi bi-folder"></i> データ</button>
                         <button id="btnReset" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash3-fill"></i> 一括削除</button>
@@ -104,14 +113,14 @@
                 <div class="tab-content" id="inputMethodTabsContent">
                     <!-- 録音モード -->
                     <div class="tab-pane fade show active" id="recordMode" role="tabpanel">
-                        <canvas id="audioVisualizer"></canvas>
+                        <div class="visualizer-shell"><canvas id="audioVisualizer"></canvas></div>
                         <div class="d-flex justify-content-center gap-3 align-items-center mb-3 flex-wrap">
                             <div class="btn-group" role="group"><input type="radio" class="btn-check" name="format" id="fmt_mp3" value="mp3" checked><label class="btn btn-outline-secondary btn-sm" for="fmt_mp3">MP3</label><input type="radio" class="btn-check" name="format" id="fmt_wav" value="wav"><label class="btn btn-outline-secondary btn-sm" for="fmt_wav">WAV</label></div>
                             <div class="vr"></div>
                                         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="noiseSuppression" checked><label class="form-check-label small ms-1" for="noiseSuppression">ノイズ除去</label></div>
                         </div>
                         <div class="d-flex justify-content-center flex-wrap gap-2 mb-2">
-                            <button id="btnRecordNew" class="btn btn-danger btn-lg rounded-pill px-4"><i class="bi bi-mic-fill"></i> 新規</button>
+                            <button id="btnRecordNew" class="btn btn-danger btn-lg rounded-pill px-4 primary-record-action"><i class="bi bi-mic-fill"></i> 新規録音</button>
                             <button id="btnRecordAppend" class="btn btn-outline-danger btn-lg rounded-pill px-4"><i class="bi bi-plus-circle"></i> 追加</button>
                             <button id="btnPause" class="btn btn-warning btn-lg rounded-pill px-4" disabled><i class="bi bi-pause-fill"></i></button>
                             <button id="btnStop" class="btn btn-secondary btn-lg rounded-pill px-4" disabled><i class="bi bi-stop-fill"></i> 停止</button>
@@ -124,7 +133,8 @@
                         <div class="mb-4">
                             <div id="dropArea" class="upload-area rounded-3 p-4">
                                 <i class="bi bi-cloud-arrow-up display-4 text-primary"></i>
-                                <p class="mt-2 text-muted">ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+                                <p class="mt-2 mb-1 fw-semibold">音声ファイルをドロップ</p>
+                                <p class="small text-muted">または、クリックしてデバイスから選択</p>
                                 <input type="file" id="audioFileInput" class="d-none" accept="audio/*">
                                 <button class="btn btn-primary btn-sm mt-1">ファイルを選択</button>
                             </div>
@@ -180,21 +190,21 @@
                     </div>
                 </div>
 
-                <div id="status" class="small fw-bold text-muted mb-2">準備完了</div>
+                <div id="status" class="status-pill small fw-bold text-muted mb-2"><span class="status-dot"></span>準備完了</div>
                 <button id="btnAbort" class="btn btn-outline-secondary btn-sm rounded-pill px-4 d-none"><i class="bi bi-stop-circle me-1"></i> 処理を停止</button>
             </div>
         </div>
 
-        <div class="accordion mb-3 shadow-sm" id="thinkingAccordion">
+        <div class="accordion mb-3" id="thinkingAccordion">
             <div class="accordion-item border-0">
                 <h2 class="accordion-header"><button id="btnCollapse" class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThinking"><i class="bi bi-cpu me-2"></i> 推論プロセス</button></h2>
                 <div id="collapseThinking" class="accordion-collapse collapse"><div class="accordion-body thought-content text-muted" id="thoughtText"></div></div>
             </div>
         </div>
 
-        <div class="card shadow-sm mb-4 border-0">
+        <div class="card result-card mb-4 border-0">
             <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
-                <span class="fw-bold">結果</span>
+                <div class="section-title section-title-small"><span class="section-icon"><i class="bi bi-file-text"></i></span><div><span>OUTPUT</span><h2>文字起こし結果</h2></div></div>
                 <div class="btn-group shadow-sm">
                     <button id="btnCopy" class="btn btn-outline-primary btn-sm" disabled><i class="bi bi-clipboard"></i></button>
                     <button id="btnFixSpacing" class="btn btn-outline-success btn-sm d-none" disabled><i class="bi bi-pencil-square"></i> 間隔修正</button>
@@ -202,11 +212,11 @@
                     <button id="btnOpenDel" class="btn btn-outline-danger btn-sm" disabled data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash"></i></button>
                 </div>
             </div>
-            <div class="card-body p-0 position-relative"><div id="processingBar" class="processing-bar-container d-none"><div class="processing-bar"></div></div><textarea id="resultText" class="form-control border-0" rows="10" placeholder="..." style="resize:none;"></textarea></div>
+            <div class="card-body p-0 position-relative"><div id="processingBar" class="processing-bar-container d-none"><div class="processing-bar"></div></div><textarea id="resultText" class="form-control border-0" rows="10" placeholder="文字起こし結果がここに表示されます" style="resize:none;"></textarea></div>
         </div>
 
-        <div class="card shadow-sm border-info mb-5">
-            <div class="card-header bg-info text-white py-2 fw-bold"><i class="bi bi-magic me-2"></i>改善</div>
+        <div class="card improve-card mb-5">
+            <div class="card-header py-3 fw-bold"><i class="bi bi-stars me-2"></i>AIで文章を改善</div>
             <div class="card-body">
                 <div class="mb-2"><div class="form-check"><input class="form-check-input" type="checkbox" id="useAudioForImprove"><label class="form-check-label small" for="useAudioForImprove">音声も参照</label></div></div>
                 <div class="input-group"><input type="text" id="instructionInput" class="form-control" placeholder="例: 要約して"><button id="btnImprove" class="btn btn-info text-white">実行</button></div>
@@ -215,10 +225,10 @@
     </div>
 
     <!-- 履歴エリア (右側/下部) -->
-    <div class="col-lg-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-header bg-light d-flex justify-content-between align-items-center fw-bold">
-                <span><i class="bi bi-clock-history me-2"></i>履歴</span>
+    <div class="col-xl-4">
+        <div class="card history-panel">
+            <div class="card-header d-flex justify-content-between align-items-center fw-bold">
+                <div class="section-title section-title-small"><span class="section-icon"><i class="bi bi-clock-history"></i></span><div><span>RECENT</span><h2>履歴</h2></div></div>
             </div>
             <div class="card-body p-2" style="background-color: var(--bg-color);">
                 <div class="alert alert-warning py-1 mb-2" style="font-size: 0.75rem;">
