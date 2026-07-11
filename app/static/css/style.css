@@ -756,9 +756,9 @@ body.app-body {
 .input-method-label { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 2px 0 8px; color: var(--muted-color); font-size: .68rem; font-weight: 750; letter-spacing: .06em; }
 .input-method-switcher .nav-pills { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-inline: 0; padding: 0; border: 0; border-radius: 13px; background: transparent; gap: 7px; }
 .input-method-switcher .nav-item { min-width: 0; }
-.input-method-switcher .nav-link { display: flex; width: 100%; min-height: 52px; min-width: 0; align-items: center; justify-content: center; gap: 9px; padding: 8px 12px; border: 1px solid var(--card-border) !important; border-radius: 12px; color: var(--text-color); background: var(--card-bg); font-size: .86rem; font-weight: 750; box-shadow: 0 3px 10px rgba(30,42,68,.04); opacity: .72; }
+.input-method-switcher .nav-link { display: flex; width: 100%; min-height: 52px; min-width: 0; align-items: center; justify-content: center; gap: 9px; padding: 8px 12px; border: 1px solid var(--card-border) !important; border-radius: 12px; color: var(--text-color) !important; background: var(--card-bg); font-size: .9rem; font-weight: 800; box-shadow: 0 3px 10px rgba(30,42,68,.04); opacity: 1; }
 .input-method-switcher .nav-link:hover { color: var(--primary-color); border-color: var(--primary-color) !important; opacity: 1; }
-.input-method-switcher .nav-link.active { color: #fff; border-color: var(--primary-color) !important; background: linear-gradient(135deg, var(--primary-color), var(--primary-hover)); box-shadow: 0 9px 22px rgba(91,92,226,.25); opacity: 1; transform: translateY(-1px); }
+.input-method-switcher .nav-link.active { color: #fff !important; border-color: var(--primary-color) !important; background: linear-gradient(135deg, var(--primary-color), var(--primary-hover)); box-shadow: 0 9px 22px rgba(91,92,226,.25); opacity: 1; transform: translateY(-1px); }
 .input-method-switcher .tab-icon { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 9px; color: var(--primary-color); background: var(--soft-primary); }
 .input-method-switcher .nav-link.active .tab-icon { color: #fff; background: rgba(255,255,255,.16); }
 .input-method-switcher .selected-mark { display: none; margin-left: 2px; font-size: .72rem; }
