@@ -770,6 +770,8 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', () => {
     let selectedFile = null, mediaRecorder, graphKeepAliveRecorder, audioContext, processor, microphone, inputGain, silentGain, analyserNode, captureSink, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [], floatChunks = [], recordFormat = 'mp3';
     let abortController = null;
+    let currentTaskId = null;
+    let cancellationInProgress = false;
     let visPeakEma = 0.02;
     let capturePeak = 0;
     let lastMicSettings = null;
@@ -1377,12 +1379,31 @@ document.addEventListener('DOMContentLoaded', () => {
         abort: document.getElementById('btnAbort')
     };
 
-    el.abort.onclick = () => {
-        if (abortController) {
-            abortController.abort();
+    el.abort.onclick = async () => {
+        if (cancellationInProgress) return;
+        cancellationInProgress = true;
+        const taskId = currentTaskId;
+        if (abortController) abortController.abort();
+        el.stat.innerText = "停止しています...";
+        el.abort.disabled = true;
+        try {
+            const cancellationSignal = new AbortController().signal;
+            const requests = [];
+            if (taskId) {
+                requests.push(csrfFetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, {
+                    method: 'POST',
+                    signal: cancellationSignal,
+                }));
+            }
+            await Promise.allSettled(requests);
+            currentTaskId = null;
+            abortController = null;
             el.stat.innerText = "停止されました";
-            el.abort.classList.add('d-none');
             showToast("処理を停止しました");
+        } finally {
+            cancellationInProgress = false;
+            el.abort.disabled = false;
+            el.abort.classList.add('d-none');
         }
     };
 
@@ -1520,10 +1541,14 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             const tasks = await r.json();
             const runningTask = tasks.find(t => t.status === 'running');
             if (runningTask) {
+                currentTaskId = runningTask.id;
+                abortController = new AbortController();
                 el.stat.innerText = "バックグラウンド処理を再開中...";
                 showToast("前回の処理が続行中です");
                 try {
-                    const streamR = await fetch(`/api/task_stream/${runningTask.id}`);
+                    const streamR = await fetch(`/api/task_stream/${runningTask.id}`, {
+                        signal: abortController.signal
+                    });
                     if (streamR.ok) {
                         await handleStreamResponse(streamR);
                     }
@@ -1667,10 +1692,12 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
 
     async function handleStreamResponse(r) {
         const reader=r.body.getReader(), dec=new TextDecoder();
+        currentTaskId = r.headers.get('X-Task-ID') || currentTaskId;
         el.tho.innerText="";
         if (el.procBar) el.procBar.classList.remove('d-none');
         let streamHadError = false;
         let isAborted = false;
+        let wasCancelled = false;
 
         if(!isAppendMode) {
             // 新規: テキストと履歴表示をクリア（サーバーは is_append=0 で既に履歴・旧音声を削除済み）
@@ -1701,6 +1728,9 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
                                 streamHadError = true;
                                 showToast(d.content,true);
                             }
+                            else if(d.type==='cancelled') {
+                                wasCancelled = true;
+                            }
                         }catch(e){}
                     }
                 });
@@ -1716,7 +1746,12 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         finally {
             if (el.procBar) el.procBar.classList.add('d-none');
             el.abort.classList.add('d-none');
+            currentTaskId = null;
             if (isAborted) return;
+            if (wasCancelled) {
+                el.stat.innerText="停止されました";
+                return;
+            }
             if (streamHadError) {
                 el.stat.innerText="エラー";
                 el.copy.disabled = true;
