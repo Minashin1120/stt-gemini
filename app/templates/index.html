@@ -768,7 +768,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-    let selectedFile = null, mediaRecorder, audioContext, processor, microphone, inputGain, silentGain, analyserNode, captureSink, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [], floatChunks = [], recordFormat = 'mp3';
+    let selectedFile = null, mediaRecorder, graphKeepAliveRecorder, audioContext, processor, microphone, inputGain, silentGain, analyserNode, captureSink, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [], floatChunks = [], recordFormat = 'mp3';
     let abortController = null;
     let visPeakEma = 0.02;
     let capturePeak = 0;
@@ -1250,6 +1250,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function teardownCaptureGraph() {
+        if (graphKeepAliveRecorder) {
+            try {
+                graphKeepAliveRecorder.ondataavailable = null;
+                if (graphKeepAliveRecorder.state !== 'inactive') graphKeepAliveRecorder.stop();
+            } catch (_) {}
+            graphKeepAliveRecorder = null;
+        }
         try { if (microphone) microphone.disconnect(); } catch (_) {}
         try { if (inputGain) inputGain.disconnect(); } catch (_) {}
         try { if (processor) processor.disconnect(); } catch (_) {}
@@ -1285,7 +1292,9 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.style.display = 'block';
         canvas.width = canvas.clientWidth || 300;
         canvas.height = canvas.clientHeight || 80;
-        const data = new Uint8Array(analyserNode.fftSize);
+        // Byte波形は約1/128刻みのため、AGCを切った生マイクの小さい信号が丸め落とされる。
+        // Float波形を使い、タップなど短い入力も量子化で消えないようにする。
+        const data = new Float32Array(analyserNode.fftSize);
         visPeakEma = 0.02;
 
         (function draw() {
@@ -1293,18 +1302,18 @@ document.addEventListener('DOMContentLoaded', () => {
             requestAnimationFrame(draw);
             if (audioContext && audioContext.state === 'suspended') audioContext.resume();
 
-            analyserNode.getByteTimeDomainData(data);
+            analyserNode.getFloatTimeDomainData(data);
 
             let peak = 0;
             let sumSq = 0;
             for (let i = 0; i < data.length; i++) {
-                const d = data[i] - 128;
+                const d = data[i];
                 const a = Math.abs(d);
                 if (a > peak) peak = a;
                 sumSq += d * d;
             }
-            const peakN = peak / 128;
-            const rms = Math.sqrt(sumSq / data.length) / 128;
+            const peakN = peak;
+            const rms = Math.sqrt(sumSq / data.length);
             visPeakEma = visPeakEma * 0.85 + Math.max(peakN, rms * 1.5) * 0.15;
 
             // 実レベルに近い感度（最大12倍）。以前の100倍は無音ノイズ床を「常時ノイズ」に見せていた
@@ -1326,7 +1335,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let x = 0;
             const sw = canvas.width / data.length;
             for (let i = 0; i < data.length; i++) {
-                let v = ((data[i] - 128.0) * sensitivity / 128.0) + 1.0;
+                let v = (data[i] * sensitivity) + 1.0;
                 let y = v * canvas.height / 2;
                 if (y < 0) y = 0;
                 if (y > canvas.height) y = canvas.height;
@@ -1907,7 +1916,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             isPaused = false;
             recordFormat = document.querySelector('input[name="format"]:checked').value;
 
-            // mic → inputGain → Analyser / ScriptProcessor → MediaStreamDestination のみ
+            // mic → inputGain → Analyser → ScriptProcessor → MediaStreamDestination の直列グラフ
             // 重要: audioContext.destination（実スピーカー）へは絶対に繋がない。
             // モバイル Chrome/Android は録音中の再生があるとフルデュプレックス経路になり、
             // プラットフォーム側の AEC/NS が constraints と無関係に効く（gain 0.0001 でも起きうる）。
@@ -1944,10 +1953,26 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             };
 
             microphone.connect(inputGain);
+            // Analyserを録音経路上に置く。出力未接続の並列枝はモバイルChromeで
+            // レンダリング対象から外され、波形が更新されないことがある。
             inputGain.connect(analyserNode);
-            inputGain.connect(processor);
-            // スピーカー出力ゼロ: MediaStreamDestination のみでグラフを生存させる
+            analyserNode.connect(processor);
+            // スピーカー出力ゼロ: MediaStreamDestination のみへ接続する。
             processor.connect(captureSink);
+
+            // MediaStreamDestinationを読むconsumerが無いと、モバイルChromeがグラフ全体を
+            // 休止する場合がある。MediaRecorderで内部ストリームを消費し、データは捨てる。
+            // audioContext.destinationには接続しないため、スピーカー経路/AECは起動しない。
+            if (typeof MediaRecorder !== 'undefined') {
+                try {
+                    graphKeepAliveRecorder = new MediaRecorder(captureSink.stream);
+                    graphKeepAliveRecorder.ondataavailable = () => {};
+                    graphKeepAliveRecorder.start(1000);
+                } catch (keepAliveError) {
+                    graphKeepAliveRecorder = null;
+                    console.warn('[STT graph keepalive unavailable]', keepAliveError);
+                }
+            }
 
             startVisualizer();
 
