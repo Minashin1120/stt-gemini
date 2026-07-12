@@ -158,6 +158,15 @@
                             <button id="btnUploadNew" class="btn btn-primary btn-lg rounded-pill px-4 shadow-sm" disabled><i class="bi bi-send-fill me-1"></i> 新規</button>
                             <button id="btnUploadAppend" class="btn btn-outline-primary btn-lg rounded-pill px-4 shadow-sm" disabled><i class="bi bi-plus-circle me-1"></i> 追加</button>
                         </div>
+                        <div id="uploadProgressPanel" class="upload-progress-panel d-none mt-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div id="uploadProgressLabel" class="small fw-semibold text-muted">アップロード準備中</div>
+                                <div id="uploadProgressPercent" class="small fw-bold text-primary">0%</div>
+                            </div>
+                            <div class="progress upload-progress" role="progressbar" aria-label="アップロード進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                                <div id="uploadProgressBar" class="progress-bar upload-progress-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1363,6 +1372,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const removeFileBtn = document.getElementById('btnRemoveFile');
     const btnUploadNew = document.getElementById('btnUploadNew');
     const btnUploadAppend = document.getElementById('btnUploadAppend');
+    const uploadProgressPanel = document.getElementById('uploadProgressPanel');
+    const uploadProgressLabel = document.getElementById('uploadProgressLabel');
+    const uploadProgressPercent = document.getElementById('uploadProgressPercent');
+    const uploadProgressBar = document.getElementById('uploadProgressBar');
 
     const bsDelModal = new bootstrap.Modal(document.getElementById('deleteModal'));
     const thoughtCol = new bootstrap.Collapse(document.getElementById('collapseThinking'), {toggle:false});
@@ -1378,6 +1391,125 @@ document.addEventListener('DOMContentLoaded', () => {
         hist: document.getElementById('historyContainer'), reset: document.getElementById('btnReset'),
         abort: document.getElementById('btnAbort')
     };
+
+    function showUploadProgress(percent = 0, label = 'アップロード中') {
+        const safePercent = Number.isFinite(percent) ? Math.max(0, Math.min(100, Math.round(percent))) : 0;
+        if (uploadProgressPanel) uploadProgressPanel.classList.remove('d-none');
+        if (uploadProgressLabel) uploadProgressLabel.innerText = label;
+        if (uploadProgressPercent) uploadProgressPercent.innerText = `${safePercent}%`;
+        if (uploadProgressBar) {
+            uploadProgressBar.style.width = `${safePercent}%`;
+            uploadProgressBar.setAttribute('aria-valuenow', String(safePercent));
+        }
+        if (el.stat) el.stat.innerText = `${label} ${safePercent}%`;
+    }
+
+    function hideUploadProgress() {
+        if (uploadProgressPanel) uploadProgressPanel.classList.add('d-none');
+        if (uploadProgressLabel) uploadProgressLabel.innerText = 'アップロード準備中';
+        if (uploadProgressPercent) uploadProgressPercent.innerText = '0%';
+        if (uploadProgressBar) {
+            uploadProgressBar.style.width = '0%';
+            uploadProgressBar.setAttribute('aria-valuenow', '0');
+        }
+    }
+
+    function prepareFormData(formData) {
+        if (csrfToken && !formData.has('csrf_token')) {
+            formData.append('csrf_token', csrfToken);
+        }
+        if (!formData.has('_js_challenge')) {
+            formData.append('_js_challenge', 'valid_' + csrfToken);
+        }
+        return formData;
+    }
+
+    function sendFormDataWithProgress(url, formData, { signal, onUploadProgress, onResponseStart, onResponseChunk } = {}) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            let lastResponseLength = 0;
+            let responseStarted = false;
+            let abortedBySignal = false;
+
+            const cleanup = () => {
+                if (signal && abortHandler) {
+                    signal.removeEventListener('abort', abortHandler);
+                }
+            };
+
+            const abortHandler = signal ? () => {
+                abortedBySignal = true;
+                try { xhr.abort(); } catch (_) {}
+            } : null;
+
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('X-CSRFToken', csrfToken);
+
+            xhr.upload.onprogress = (e) => {
+                if (!e.lengthComputable || typeof onUploadProgress !== 'function') return;
+                onUploadProgress(e.loaded, e.total);
+            };
+            xhr.upload.onloadend = () => {
+                if (typeof onUploadProgress === 'function') {
+                    onUploadProgress(1, 1);
+                }
+            };
+
+            xhr.onreadystatechange = () => {
+                if (!responseStarted && xhr.readyState >= 2 && xhr.status >= 200 && xhr.status < 300) {
+                    responseStarted = true;
+                    if (typeof onResponseStart === 'function') onResponseStart(xhr);
+                }
+                if (responseStarted && xhr.readyState >= 3 && typeof onResponseChunk === 'function') {
+                    const text = xhr.responseText || '';
+                    if (text.length > lastResponseLength) {
+                        onResponseChunk(text.slice(lastResponseLength));
+                        lastResponseLength = text.length;
+                    }
+                }
+                if (xhr.readyState === 4) {
+                    if (responseStarted && typeof onResponseChunk === 'function') {
+                        const text = xhr.responseText || '';
+                        if (text.length > lastResponseLength) {
+                            onResponseChunk(text.slice(lastResponseLength));
+                            lastResponseLength = text.length;
+                        }
+                    }
+                    cleanup();
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve({ status: xhr.status, responseText: xhr.responseText || '', xhr });
+                    } else if (abortedBySignal || (signal && signal.aborted)) {
+                        reject(new DOMException('Aborted', 'AbortError'));
+                    } else {
+                        reject(Object.assign(new Error(`HTTP ${xhr.status}`), {
+                            status: xhr.status,
+                            responseText: xhr.responseText || ''
+                        }));
+                    }
+                }
+            };
+
+            xhr.onerror = () => {
+                cleanup();
+                reject(new Error('Network error'));
+            };
+            xhr.onabort = () => {
+                cleanup();
+                reject(new DOMException('Aborted', 'AbortError'));
+            };
+
+            if (signal) {
+                if (signal.aborted) {
+                    reject(new DOMException('Aborted', 'AbortError'));
+                    return;
+                }
+                signal.addEventListener('abort', abortHandler, { once: true });
+            }
+
+            prepareFormData(formData);
+            xhr.send(formData);
+        });
+    }
 
     el.abort.onclick = async () => {
         if (cancellationInProgress) return;
@@ -1480,6 +1612,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             showToast("音声ファイルを選択してください", true);
             return;
         }
+        hideUploadProgress();
         selectedFile = file;
         fileNameEl.innerText = file.name;
         fileSizeEl.innerText = (file.size / (1024 * 1024)).toFixed(2) + " MB";
@@ -1507,6 +1640,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         fileInfo.classList.add('d-none');
         btnUploadNew.disabled = true;
         btnUploadAppend.disabled = true;
+        hideUploadProgress();
         el.stat.innerText = "準備完了";
     };
 
@@ -1670,7 +1804,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
     });
 
     // --- Stream & Upload ---
-    let sseBuffer = "";
+    let streamSession = null;
 
     /** 新規モード開始時: 結果テキスト・思考・initText を破棄（録音側と同じ） */
     function clearResultUiForNew() {
@@ -1690,90 +1824,118 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         }
     }
 
-    async function handleStreamResponse(r) {
-        const reader=r.body.getReader(), dec=new TextDecoder();
-        currentTaskId = r.headers.get('X-Task-ID') || currentTaskId;
-        el.tho.innerText="";
+    function beginStreamSession(taskId = null) {
+        streamSession = {
+            buffer: "",
+            text: "",
+            hadError: false,
+            wasCancelled: false
+        };
+        currentTaskId = taskId || currentTaskId;
+        el.tho.innerText = "";
+        hideUploadProgress();
         if (el.procBar) el.procBar.classList.remove('d-none');
-        let streamHadError = false;
-        let isAborted = false;
-        let wasCancelled = false;
 
-        if(!isAppendMode) {
+        if (!isAppendMode) {
             // 新規: テキストと履歴表示をクリア（サーバーは is_append=0 で既に履歴・旧音声を削除済み）
             clearResultUiForNew();
             clearHistoryUi();
+        } else {
+            let cur = el.res.value.trim();
+            initText = cur ? cur + "\n\n" : "";
+            el.res.value = initText;
         }
-        else { let cur=el.res.value.trim(); initText=cur?cur+"\n\n":""; el.res.value=initText; }
-        
-        if(el.think.value!=='MINIMAL' && getModel()!=='grok-stt') thoughtCol.show();
+
+        if (el.think.value !== 'MINIMAL' && getModel() !== 'grok-stt') thoughtCol.show();
         el.abort.classList.remove('d-none');
+    }
 
-        let stT="";
-        sseBuffer = "";
+    function consumeStreamChunk(chunkText) {
+        if (!streamSession || !chunkText) return;
+        streamSession.buffer += chunkText;
+        const lines = streamSession.buffer.split('\n\n');
+        streamSession.buffer = lines.pop();
+
+        lines.forEach(l => {
+            if (!l.startsWith('data: ')) return;
+            try {
+                const d = JSON.parse(l.substring(6));
+                if (d.type === 'thought') {
+                    el.tho.innerText += d.content;
+                    el.tho.scrollTop = el.tho.scrollHeight;
+                } else if (d.type === 'text') {
+                    streamSession.text += d.content;
+                    el.res.value = initText + streamSession.text;
+                    el.res.scrollTop = el.res.scrollHeight;
+                } else if (d.type === 'error') {
+                    streamSession.hadError = true;
+                    showToast(d.content, true);
+                } else if (d.type === 'cancelled') {
+                    streamSession.wasCancelled = true;
+                }
+            } catch (e) {}
+        });
+    }
+
+    function finishStreamSession({ aborted = false } = {}) {
+        if (el.procBar) el.procBar.classList.add('d-none');
+        el.abort.classList.add('d-none');
+        currentTaskId = null;
+
+        if (aborted) {
+            streamSession = null;
+            return;
+        }
+        if (streamSession?.wasCancelled) {
+            el.stat.innerText = "停止されました";
+            streamSession = null;
+            return;
+        }
+        if (streamSession?.hadError) {
+            el.stat.innerText = "エラー";
+            el.copy.disabled = true;
+            el.re.disabled = true;
+            el.delBtn.disabled = true;
+            el.fix.disabled = true;
+            streamSession = null;
+            return;
+        }
+
+        el.stat.innerText = "完了";
+        el.copy.disabled = el.re.disabled = el.delBtn.disabled = false;
+        if (getModel() === 'gemini-3.1-flash-lite') el.fix.disabled = false;
+        showToast("完了");
+        loadHistory();
+        // モデル別のヒント表示
+        const _mdl = getModel();
+        const _lvl = el.think.value;
+        if (_mdl === 'grok-stt') {
+            el.tho.innerText = '[Grok STT は思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
+        } else if (_mdl === 'gemini-3.1-flash-lite' && (_lvl === 'LOW' || _lvl === 'MEDIUM') && !el.tho.innerText.trim()) {
+            el.tho.innerText = '[Flash-Lite は LOW/MEDIUM 設定時に思考プロセスを返しません。表示するには HIGH を選択してください。]';
+        }
+        streamSession = null;
+    }
+
+    async function handleStreamResponse(r) {
+        const reader = r.body.getReader(), dec = new TextDecoder();
+        beginStreamSession(r.headers.get('X-Task-ID'));
+        let isAborted = false;
         try {
-            while(true){
-                const {done,value}=await reader.read(); if(done)break;
-                sseBuffer += dec.decode(value, {stream: true});
-                const lines = sseBuffer.split('\n\n');
-                sseBuffer = lines.pop();
-
-                lines.forEach(l=>{
-                    if(l.startsWith('data: ')){
-                        try{
-                            const d=JSON.parse(l.substring(6));
-                            if(d.type==='thought'){ el.tho.innerText+=d.content; el.tho.scrollTop=el.tho.scrollHeight; }
-                            else if(d.type==='text'){ stT+=d.content; el.res.value=initText+stT; el.res.scrollTop=el.res.scrollHeight; }
-                            else if(d.type==='error') {
-                                streamHadError = true;
-                                showToast(d.content,true);
-                            }
-                            else if(d.type==='cancelled') {
-                                wasCancelled = true;
-                            }
-                        }catch(e){}
-                    }
-                });
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                consumeStreamChunk(dec.decode(value, { stream: true }));
             }
-        } catch(e){
+        } catch (e) {
             if (e.name === 'AbortError') {
                 isAborted = true;
             } else {
-                streamHadError = true;
+                if (streamSession) streamSession.hadError = true;
                 showToast("Error",true);
             }
         }
-        finally {
-            if (el.procBar) el.procBar.classList.add('d-none');
-            el.abort.classList.add('d-none');
-            currentTaskId = null;
-            if (isAborted) return;
-            if (wasCancelled) {
-                el.stat.innerText="停止されました";
-                return;
-            }
-            if (streamHadError) {
-                el.stat.innerText="エラー";
-                el.copy.disabled = true;
-                el.re.disabled = true;
-                el.delBtn.disabled = true;
-                el.fix.disabled = true;
-                return;
-            }
-            el.stat.innerText="完了";
-            el.copy.disabled=el.re.disabled=el.delBtn.disabled=false;
-            if (getModel() === 'gemini-3.1-flash-lite') el.fix.disabled=false;
-            showToast("完了");
-            loadHistory();
-            // モデル別のヒント表示
-            const _mdl = getModel();
-            const _lvl = el.think.value;
-            if (_mdl === 'grok-stt') {
-                el.tho.innerText = '[Grok STT は思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
-            } else if (_mdl === 'gemini-3.1-flash-lite' && (_lvl === 'LOW' || _lvl === 'MEDIUM') && !el.tho.innerText.trim()) {
-                el.tho.innerText = '[Flash-Lite は LOW/MEDIUM 設定時に思考プロセスを返しません。表示するには HIGH を選択してください。]';
-            }
-        }
+        finishStreamSession({ aborted: isAborted });
     }
 
     btnUploadNew.onclick = () => uploadFile(false);
@@ -1799,7 +1961,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         isAppendMode = append;
         // 録音の「新規」と同様、送信確定時点で結果テキストをクリアする
         if (!append) clearResultUiForNew();
-        el.stat.innerText = "アップロード中...";
+        showUploadProgress(0, "アップロード中");
         btnUploadNew.disabled = btnUploadAppend.disabled = true;
         abortController = new AbortController();
         const fd = new FormData();
@@ -1810,28 +1972,31 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
         fd.append('is_append', append ? '1' : '0');
         try {
-            const r = await csrfFetch('/transcribe', { 
-                method: 'POST', 
-                body: fd,
-                signal: abortController.signal
+            await sendFormDataWithProgress('/transcribe', fd, {
+                signal: abortController.signal,
+                onUploadProgress: (loaded, total) => {
+                    if (!total) return;
+                    showUploadProgress((loaded / total) * 100, "アップロード中");
+                },
+                onResponseStart: (xhr) => {
+                    beginStreamSession(xhr.getResponseHeader('X-Task-ID'));
+                    el.stat.innerText = "解析中...";
+                },
+                onResponseChunk: consumeStreamChunk
             });
-            if (!r.ok) {
-                const err = await r.json().catch(() => ({}));
-                // 新規時はサーバー側で履歴・音声が既に消えている場合があるため UI を同期
-                if (!append) {
-                    clearResultUiForNew();
-                    loadHistory();
-                }
-                showToast(err.error || "エラーが発生しました", true);
-                el.stat.innerText = "エラー";
-                return;
-            }
-            await handleStreamResponse(r);
+            finishStreamSession();
         } catch (e) {
+            hideUploadProgress();
             if (e.name === 'AbortError') return;
-            if (!append) loadHistory();
-            showToast("通信エラー", true);
-            el.stat.innerText = "通信エラー";
+            if (streamSession) {
+                streamSession.hadError = true;
+                finishStreamSession();
+                if (e.message === 'Network error') showToast("通信エラー", true);
+            } else {
+                if (!append) loadHistory();
+                showToast("通信エラー", true);
+                el.stat.innerText = "通信エラー";
+            }
         } finally {
             btnUploadNew.disabled = btnUploadAppend.disabled = false;
         }
@@ -1848,10 +2013,9 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
 
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
         const uploadId = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-
-        el.stat.innerText = `アップロード中 (0/${totalChunks})...`;
-
         const tasks = [];
+        const chunkProgress = new Array(totalChunks).fill(0);
+
         for (let i = 0; i < totalChunks; i++) {
             const start = i * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, file.size);
@@ -1862,28 +2026,38 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             fd.append('total_chunks', totalChunks);
             fd.append('original_filename', file.name);
             fd.append('chunk', chunk, `chunk_${i}`);
-            tasks.push(fd);
+            tasks.push({ index: i, size: chunk.size, formData: fd });
         }
 
         const CONCURRENCY = 4;
-        let completedChunks = 0;
+        const refreshUploadState = () => {
+            const uploadedBytes = chunkProgress.reduce((sum, value) => sum + value, 0);
+            const percent = file.size > 0 ? (uploadedBytes / file.size) * 100 : 100;
+            showUploadProgress(percent, "アップロード中");
+        };
 
-        async function uploadOne(formData) {
-            const r = await csrfFetch('/api/upload_chunk', {
-                method: 'POST', body: formData, signal: abortController.signal
+        async function uploadOne(task) {
+            await sendFormDataWithProgress('/api/upload_chunk', task.formData, {
+                signal: abortController.signal,
+                onUploadProgress: (loaded, total) => {
+                    const estimated = total ? Math.min(task.size, (loaded / total) * task.size) : task.size;
+                    chunkProgress[task.index] = estimated;
+                    refreshUploadState();
+                }
             });
-            if (!r.ok) throw new Error('Chunk upload failed');
-            completedChunks++;
-            el.stat.innerText = `アップロード中 (${completedChunks}/${totalChunks})...`;
+            chunkProgress[task.index] = task.size;
+            refreshUploadState();
         }
 
         try {
+            showUploadProgress(0, "アップロード中");
             for (let i = 0; i < tasks.length; i += CONCURRENCY) {
                 const batch = tasks.slice(i, i + CONCURRENCY);
                 await Promise.all(batch.map(uploadOne));
                 if (abortController.signal.aborted) return;
             }
 
+            showUploadProgress(100, "送信完了");
             el.stat.innerText = "解析中...";
             // チャンク結合〜文字起こし開始直前にクリア（サーバー側クリアとタイミングを合わせる）
             if (!append) clearResultUiForNew();
@@ -1897,25 +2071,27 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0');
             fd.append('is_append', append ? '1' : '0');
 
-            const r = await csrfFetch('/api/upload_complete', {
-                method: 'POST', body: fd, signal: abortController.signal
+            await sendFormDataWithProgress('/api/upload_complete', fd, {
+                signal: abortController.signal,
+                onResponseStart: (xhr) => {
+                    beginStreamSession(xhr.getResponseHeader('X-Task-ID'));
+                    el.stat.innerText = "解析中...";
+                },
+                onResponseChunk: consumeStreamChunk
             });
-            if (!r.ok) {
-                const err = await r.json().catch(() => ({}));
-                if (!append) {
-                    clearResultUiForNew();
-                    loadHistory();
-                }
-                showToast(err.error || "エラーが発生しました", true);
-                el.stat.innerText = "エラー";
-                return;
-            }
-            await handleStreamResponse(r);
+            finishStreamSession();
         } catch (e) {
+            hideUploadProgress();
             if (e.name === 'AbortError') return;
-            if (!append) loadHistory();
-            showToast("通信エラー", true);
-            el.stat.innerText = "通信エラー";
+            if (streamSession) {
+                streamSession.hadError = true;
+                finishStreamSession();
+                if (e.message === 'Network error') showToast("通信エラー", true);
+            } else {
+                if (!append) loadHistory();
+                showToast("通信エラー", true);
+                el.stat.innerText = "通信エラー";
+            }
         } finally {
             btnUploadNew.disabled = btnUploadAppend.disabled = false;
         }
