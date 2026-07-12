@@ -969,26 +969,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function buildNoiseOffConstraintSets() {
-        // すべて false = 生に近い経路（音量は encode 時 makeup gain）
-        // channelCount:2 は Chrome が音声処理を切るきっかけになることがある（ステレオでは AEC 非対応）
+        // Chromium/Android では echoCancellation の exact:false が APM 全体を止める鍵。
+        // NS/AGC/voiceIsolation まで同じ exact セットにすると、どれか一つが変更不能な端末で
+        // セット全体が reject されるため、EC を単独の必須条件として最初に試す。
         return [
             {
                 ...processingOffCore(),
-                channelCount: { ideal: 2 }
+                echoCancellation: { exact: false },
+                channelCount: { ideal: 1 },
+                sampleRate: { ideal: 48000 }
             },
+            // Safari 系では noiseSuppression の exact:false が有効な場合がある。
             {
                 ...processingOffCore(),
-                channelCount: 2
+                noiseSuppression: { exact: false },
+                channelCount: { ideal: 1 },
+                sampleRate: { ideal: 48000 }
             },
-            {
-                ...processingOffCore()
-            },
-            // exact で強制（モバイル Chrome が ideal を無視する対策）
+            // 全項目を必須にできる端末では完全な raw 経路を要求する。
             {
                 echoCancellation: { exact: false },
                 noiseSuppression: { exact: false },
                 autoGainControl: { exact: false },
-                channelCount: { ideal: 2 }
+                channelCount: { ideal: 1 }
+            },
+            // 必須指定を扱えない実装向けの通常指定。
+            {
+                ...processingOffCore(),
+                channelCount: { ideal: 1 },
+                sampleRate: { ideal: 48000 }
             },
             {
                 echoCancellation: false,
@@ -1048,19 +1057,64 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function forceTrackProcessing(track, noiseOn) {
-        if (!track) return;
-        const desired = noiseOn
-            ? { echoCancellation: false, noiseSuppression: true, autoGainControl: true, voiceIsolation: false }
-            : { echoCancellation: false, noiseSuppression: false, autoGainControl: false, voiceIsolation: false };
-        // 1) 通常再適用
-        try { await track.applyConstraints(desired); } catch (_) {}
-        // 2) exact で再試行（無視されやすい端末向け）
-        try {
-            const exact = {};
-            Object.keys(desired).forEach(k => { exact[k] = { exact: desired[k] }; });
-            await track.applyConstraints(exact);
-        } catch (_) {}
+        if (!track) return [];
+        const attempts = [];
+        const apply = async (label, constraints) => {
+            try {
+                await track.applyConstraints(constraints);
+                attempts.push({ label, applied: true });
+                return true;
+            } catch (err) {
+                attempts.push({
+                    label,
+                    applied: false,
+                    error: String(err && (err.name || err.message) || err)
+                });
+                return false;
+            }
+        };
+
+        if (noiseOn) {
+            await apply('on-standard', {
+                echoCancellation: false,
+                noiseSuppression: true,
+                autoGainControl: true,
+                voiceIsolation: false
+            });
+            // ON は NS のみ必須化。AGC 等が変更不能でも NS の適用を巻き戻さない。
+            await apply('on-ns-exact', {
+                noiseSuppression: { exact: true },
+                echoCancellation: false,
+                autoGainControl: true,
+                voiceIsolation: false
+            });
+        } else {
+            // 先に通常指定を適用し、その後、端末別のマスタースイッチを一項目ずつ必須化する。
+            // 複数項目の exact をまとめないこと。1項目の失敗で全適用が無効になるため。
+            await apply('off-standard', {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+                voiceIsolation: false
+            });
+            const ecExact = await apply('off-ec-exact', {
+                echoCancellation: { exact: false },
+                noiseSuppression: false,
+                autoGainControl: false,
+                voiceIsolation: false
+            });
+            if (!ecExact) {
+                await apply('off-ns-exact', {
+                    noiseSuppression: { exact: false },
+                    echoCancellation: false,
+                    autoGainControl: false,
+                    voiceIsolation: false
+                });
+            }
+        }
         try { track.enabled = true; } catch (_) {}
+        try { track.contentHint = noiseOn ? 'speech' : ''; } catch (_) {}
+        return attempts;
     }
 
     async function tryGetUserMediaAudio(audioConstraints, noiseOn) {
@@ -1086,7 +1140,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 reapply.autoGainControl = true;
             }
             try { await track.applyConstraints(reapply); } catch (_) {}
-            await forceTrackProcessing(track, noiseOn);
+            stream._sttConstraintAttempts = await forceTrackProcessing(track, noiseOn);
         }
         return stream;
     }
@@ -1148,7 +1202,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 最終ガード: 採用ストリームにもう一度 force
         const finalTrack = best.stream.getAudioTracks()[0];
-        await forceTrackProcessing(finalTrack, noiseOn);
+        const finalConstraintAttempts = await forceTrackProcessing(finalTrack, noiseOn);
         best.settings = readMicSettings(finalTrack);
 
         const s = best.settings || {};
@@ -1173,6 +1227,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 autoGainControl: !!supported.autoGainControl,
                 voiceIsolation: !!supported.voiceIsolation
             },
+            finalConstraintAttempts,
             attempts
         });
 
@@ -1183,6 +1238,7 @@ document.addEventListener('DOMContentLoaded', () => {
             echoCancellation: s.echoCancellation,
             strategy: best.index,
             score: best.score,
+            constraintAttempts: finalConstraintAttempts,
             // OFF なのにいずれかの処理が true のまま = ソフト/ハードが切れていない
             offLikelyFailed: offFailed,
             processingFullyOff: !noiseOn
@@ -1839,7 +1895,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             // ユーザージェスチャー内で AudioContext を用意
             await ensureAudioContextRunning();
 
-            // チェックON = ノイズ除去する / OFF = NSのみ切る（AGCは音量のため維持）
+            // チェックON = ノイズ除去する / OFF = EC/NS/AGC/voice isolation をすべて切る
             const noiseOn = !!(el.noise && el.noise.checked);
             audioStream = await acquireMicStream(noiseOn);
 
