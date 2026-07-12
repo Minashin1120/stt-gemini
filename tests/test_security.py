@@ -214,6 +214,60 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn('private-key', url)
         self.assertEqual(headers['x-goog-api-key'], 'private-key')
 
+    def test_task_cancel_releases_lock_and_cannot_be_overwritten(self):
+        client = application.app.test_client()
+        token = self.authenticate(client, self.first_id)
+        task_id = application.create_task(
+            self.first_id, 'transcribe', 'Audio Input', 'gemini-3.5-flash'
+        )
+        response = client.post(
+            f'/api/tasks/{task_id}/cancel',
+            headers={'User-Agent': 'Mozilla/5.0', 'X-CSRFToken': token},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(application.get_task(task_id)['status'], 'cancelled')
+        self.assertIsNone(application.redis_client.get(f'user:{self.first_id}:active_task'))
+        application.update_task(task_id, status='done', result='late result')
+        self.assertEqual(application.get_task(task_id)['status'], 'cancelled')
+
+    def test_orphaned_running_task_is_cancelled_when_tasks_are_listed(self):
+        client = application.app.test_client()
+        self.authenticate(client, self.first_id)
+        task_id = application.create_task(
+            self.first_id, 'transcribe', 'Audio Input', 'gemini-3.5-flash'
+        )
+        application.redis_client.delete(f'user:{self.first_id}:active_task')
+        response = client.get('/api/tasks', headers={'User-Agent': 'Mozilla/5.0'})
+        self.assertEqual(response.status_code, 200)
+        task = next(item for item in response.get_json() if item['id'] == task_id)
+        self.assertEqual(task['status'], 'cancelled')
+
+    def test_task_from_previous_service_instance_is_cancelled_immediately(self):
+        client = application.app.test_client()
+        self.authenticate(client, self.first_id)
+        task_id = application.create_task(
+            self.first_id, 'transcribe', 'Audio Input', 'gemini-3.5-flash'
+        )
+        application.redis_client.hset(
+            f'task:{task_id}', mapping={'server_instance': 'previous-service'}
+        )
+        response = client.get('/api/tasks', headers={'User-Agent': 'Mozilla/5.0'})
+        self.assertEqual(response.status_code, 200)
+        task = next(item for item in response.get_json() if item['id'] == task_id)
+        self.assertEqual(task['status'], 'cancelled')
+
+    def test_task_from_dead_worker_is_cancelled_immediately(self):
+        client = application.app.test_client()
+        self.authenticate(client, self.first_id)
+        task_id = application.create_task(
+            self.first_id, 'transcribe', 'Audio Input', 'gemini-3.5-flash'
+        )
+        application.redis_client.hset(f'task:{task_id}', mapping={'worker_pid': '999999999'})
+        response = client.get('/api/tasks', headers={'User-Agent': 'Mozilla/5.0'})
+        self.assertEqual(response.status_code, 200)
+        task = next(item for item in response.get_json() if item['id'] == task_id)
+        self.assertEqual(task['status'], 'cancelled')
+
     def test_only_one_active_task_is_allowed_per_user(self):
         task_id = application.create_task(self.first_id, 'test', 'test', 'gemini-3.5-flash')
         with self.assertRaises(application.ActiveTaskError):

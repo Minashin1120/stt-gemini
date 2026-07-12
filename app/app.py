@@ -121,6 +121,8 @@ def create_task(user_id, action_type, input_summary, model):
             'thought': '',
             'result': '',
             'model': model,
+            'server_instance': str(os.getppid()),
+            'worker_pid': str(os.getpid()),
             'created_at': now,
             'updated_at': now,
         })
@@ -136,20 +138,40 @@ def create_task(user_id, action_type, input_summary, model):
     return task_id
 
 def update_task(task_id, **kwargs):
-    kwargs['updated_at'] = time.time()
     task_key = f"task:{task_id}"
+    current_status = redis_client.hgetall(task_key).get('status')
+    if current_status == 'cancelled' and kwargs.get('status') != 'cancelled':
+        return
+    kwargs['updated_at'] = time.time()
     redis_client.hset(task_key, mapping=kwargs)
     task = redis_client.hgetall(task_key)
     user_id = task.get('user_id')
     if user_id:
         active_key = f"user:{user_id}:active_task"
-        if kwargs.get('status') in {'done', 'error'}:
+        if kwargs.get('status') in {'done', 'error', 'cancelled'}:
             redis_client.eval(
                 "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
                 1, active_key, task_id,
             )
         elif redis_client.get(active_key) == task_id:
             redis_client.expire(active_key, ACTIVE_TASK_TTL)
+
+def cancel_task(task_id, user_id, message='処理を停止しました'):
+    task = get_task(task_id)
+    if not task or task.get('user_id') != str(user_id):
+        return False
+    update_task(task_id, status='cancelled', error=message)
+    return True
+
+def task_is_cancelled(task_id):
+    return get_task(task_id).get('status') == 'cancelled'
+
+def process_is_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (TypeError, ValueError, ProcessLookupError, PermissionError):
+        return False
 
 def get_task(task_id):
     return redis_client.hgetall(f"task:{task_id}")
@@ -922,6 +944,8 @@ def delete_word(word_id):
 # --- Background Task Processor (writes progress to Redis) ---
 def process_gemini_background(task_id, api_key, payload, user_id, action_type, input_summary, model="gemini-3.5-flash"):
     try:
+        if task_is_cancelled(task_id):
+            return
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
         
         full_thought = ""
@@ -933,6 +957,8 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
         
         for attempt in range(max_retries + 1):
             try:
+                if task_is_cancelled(task_id):
+                    return
                 response = requests.post(
                     url,
                     headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
@@ -943,7 +969,11 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                 
                 if response.status_code == 429 and attempt < max_retries:
                     update_task(task_id, status='running')
-                    time.sleep(retry_delay)
+                    for _ in range(retry_delay * 10):
+                        if task_is_cancelled(task_id):
+                            response.close()
+                            return
+                        time.sleep(0.1)
                     retry_delay *= 2
                     continue
                 
@@ -956,6 +986,9 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                     return
 
                 for line in response.iter_lines():
+                    if task_is_cancelled(task_id):
+                        response.close()
+                        return
                     if line:
                         decoded = line.decode('utf-8')
                         if decoded.startswith('data: '):
@@ -982,7 +1015,7 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                 update_task(task_id, status='error', error='APIリクエスト中にエラーが発生しました')
                 return
         
-        if had_error:
+        if had_error or task_is_cancelled(task_id):
             return
         
         save_history(user_id, action_type, input_summary, full_thought, full_text)
@@ -1023,13 +1056,18 @@ def stream_task_updates(task_id):
         elif status == 'error':
             yield f"data: {json.dumps({'type': 'error', 'content': task.get('error', 'Unknown error')})}\n\n"
             return
+        elif status == 'cancelled':
+            yield f"data: {json.dumps({'type': 'cancelled', 'content': task.get('error', '処理を停止しました')})}\n\n"
+            return
         
         time.sleep(0.3)
 
-def create_stream_response(generator):
+def create_stream_response(generator, task_id=None):
     response = Response(stream_with_context(generator), mimetype='text/event-stream')
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
+    if task_id:
+        response.headers['X-Task-ID'] = task_id
     return response
 
 # プロンプト定数
@@ -1121,7 +1159,7 @@ def transcribe():
         )
         thread.daemon = True
         thread.start()
-        return create_stream_response(stream_task_updates(task_id))
+        return create_stream_response(stream_task_updates(task_id), task_id)
     
     # Gemini path
     api_key = current_user.get_api_key()
@@ -1159,7 +1197,7 @@ def transcribe():
     )
     thread.daemon = True
     thread.start()
-    return create_stream_response(stream_task_updates(task_id))
+    return create_stream_response(stream_task_updates(task_id), task_id)
 
 @app.route('/reanalyze', methods=['POST'])
 @login_required
@@ -1186,7 +1224,7 @@ def reanalyze():
         )
         thread.daemon = True
         thread.start()
-        return create_stream_response(stream_task_updates(task_id))
+        return create_stream_response(stream_task_updates(task_id), task_id)
     
     api_key = current_user.get_api_key()
     if not api_key: return jsonify({'error': 'API Key not set'}), 400
@@ -1226,7 +1264,7 @@ def reanalyze():
     )
     thread.daemon = True
     thread.start()
-    return create_stream_response(stream_task_updates(task_id))
+    return create_stream_response(stream_task_updates(task_id), task_id)
 
 @app.route('/improve', methods=['POST'])
 @login_required
@@ -1294,7 +1332,7 @@ def improve():
     )
     thread.daemon = True
     thread.start()
-    return create_stream_response(stream_task_updates(task_id))
+    return create_stream_response(stream_task_updates(task_id), task_id)
 
 # --- File & History APIs ---
 @app.route('/delete_audio', methods=['POST'])
@@ -1578,7 +1616,7 @@ def upload_complete():
         )
         thread.daemon = True
         thread.start()
-        return create_stream_response(stream_task_updates(task_id))
+        return create_stream_response(stream_task_updates(task_id), task_id)
 
     api_key = current_user.get_api_key()
     if not api_key:
@@ -1614,7 +1652,7 @@ def upload_complete():
     )
     thread.daemon = True
     thread.start()
-    return create_stream_response(stream_task_updates(task_id))
+    return create_stream_response(stream_task_updates(task_id), task_id)
 
 @app.route('/api/delete_file/<filename>', methods=['POST'])
 @login_required
@@ -1717,6 +1755,8 @@ def get_history():
 # --- Grok STT Background Processor ---
 def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary):
     try:
+        if task_is_cancelled(task_id):
+            return
         url = "https://api.x.ai/v1/stt"
 
         with open(audio_filepath, 'rb') as f:
@@ -1746,6 +1786,8 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
                 timeout=(10, 600)
             )
 
+        if task_is_cancelled(task_id):
+            return
         if response.status_code == 401:
             update_task(task_id, status='error', error='xAI APIキーが無効です。設定画面で確認してください。')
             return
@@ -1776,6 +1818,8 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
         except Exception as e:
             logger.warning(f"Word replacement error: {e}")
 
+        if task_is_cancelled(task_id):
+            return
         update_task(task_id, status='done', thought='', result=text)
         save_history(user_id, action_type, input_summary, '', text)
 
@@ -1800,6 +1844,17 @@ def list_tasks():
         for tid in list(task_ids):
             task = get_task(tid)
             if task:
+                if task.get('status') == 'running':
+                    active_task_id = redis_client.get(f"user:{current_user.id}:active_task")
+                    same_server_instance = task.get('server_instance') == str(os.getppid())
+                    worker_is_alive = process_is_alive(task.get('worker_pid'))
+                    if not same_server_instance or not worker_is_alive or active_task_id != tid:
+                        cancel_task(
+                            tid,
+                            current_user.id,
+                            'サービス再起動により処理が中断されました。再度実行してください。',
+                        )
+                        task = get_task(tid)
                 tasks.append({
                     'id': tid,
                     'status': task.get('status'),
@@ -1819,6 +1874,13 @@ def list_tasks():
         logger.error(f"Task listing failed for user {current_user.username}: {e}", exc_info=True)
         return jsonify({'error': 'タスク一覧の取得に失敗しました'}), 500
 
+@app.route('/api/tasks/<task_id>/cancel', methods=['POST'])
+@login_required
+def cancel_task_route(task_id):
+    if not cancel_task(task_id, current_user.id):
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify({'success': True})
+
 @app.route('/api/task_stream/<task_id>')
 @login_required
 def task_stream(task_id):
@@ -1827,7 +1889,7 @@ def task_stream(task_id):
         return jsonify({'error': 'Task not found'}), 404
     if task.get('user_id') != str(current_user.id):
         return jsonify({'error': 'Access denied'}), 403
-    return create_stream_response(stream_task_updates(task_id))
+    return create_stream_response(stream_task_updates(task_id), task_id)
 
 if __name__ == '__main__':
     with app.app_context():
