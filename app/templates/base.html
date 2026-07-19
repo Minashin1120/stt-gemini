@@ -12,13 +12,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&family=Zen+Old+Mincho&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- Custom CSS -->
-    <link href="/static/css/style.css?v=6" rel="stylesheet">
+    <link href="/static/css/style.css?v=11" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous" defer></script>
     <script>
         // JS Challenge: 動的にフォームへトークンを注入 (自動化対策)
         document.addEventListener('DOMContentLoaded', function() {
             const forms = document.querySelectorAll('form');
-            const csrf = document.querySelector('meta[name="csrf-token"]').content;
+            const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+            const csrf = csrfMeta ? csrfMeta.content : '';
             forms.forEach(f => {
                 if (f.method.toUpperCase() === 'POST') {
                     const input = document.createElement('input');
@@ -31,6 +32,36 @@
 
             // Bootstrapモーダルをトップレベルへ移動し、親要素の重なり順から分離する
             document.querySelectorAll('.modal').forEach(modal => document.body.appendChild(modal));
+
+            // ナビメニュー: アニメ途中でも即反転できる独自トグル（Bootstrap Collapse は遷移中ロックがあるため使わない）
+            const navToggle = document.getElementById('navMenuToggle');
+            const navPanel = document.getElementById('appNavigation');
+            if (navToggle && navPanel) {
+                // 意図状態。連打時はクラスの見かけではなく意図を反転する
+                let navOpen = false;
+                const setNavOpen = function(open) {
+                    navOpen = !!open;
+                    navPanel.classList.toggle('is-open', navOpen);
+                    navToggle.setAttribute('aria-expanded', navOpen ? 'true' : 'false');
+                    navToggle.setAttribute('aria-label', navOpen ? 'ナビゲーションを閉じる' : 'ナビゲーションを開く');
+                };
+                navToggle.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    setNavOpen(!navOpen);
+                });
+                navPanel.querySelectorAll('a.nav-link').forEach(function(link) {
+                    link.addEventListener('click', function() {
+                        if (window.matchMedia('(max-width: 991.98px)').matches) {
+                            setNavOpen(false);
+                        }
+                    });
+                });
+                window.addEventListener('resize', function() {
+                    if (window.matchMedia('(min-width: 992px)').matches && navOpen) {
+                        setNavOpen(false);
+                    }
+                });
+            }
         });
 
         // モーダル切替・終了後に操作を遮る孤立バックドロップを残さない
@@ -64,21 +95,21 @@
                     <span class="brand-mark"><i class="bi bi-soundwave"></i></span>
                     <span><strong>Voxcribe</strong><small>AI Transcription</small></span>
                 </a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#appNavigation" aria-controls="appNavigation" aria-expanded="false" aria-label="ナビゲーションを開く"><span class="navbar-toggler-icon"></span></button>
-                <div class="collapse navbar-collapse" id="appNavigation">
-                <div class="navbar-nav ms-auto align-items-lg-center">
-                    {% if current_user.is_authenticated %}
-                        <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/"><i class="bi bi-grid-1x2"></i><span>ワークスペース</span></a>
-                        <a class="nav-link {% if request.path == '/settings' %}active{% endif %}" href="/settings"><i class="bi bi-sliders"></i><span>設定</span></a>
-                        <form method="POST" action="/logout" class="d-inline">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="nav-link border-0 bg-transparent"><i class="bi bi-box-arrow-right"></i><span>ログアウト</span></button>
-                        </form>
-                    {% else %}
-                        <a class="nav-link {% if request.path == '/login' %}active{% endif %}" href="/login"><i class="bi bi-box-arrow-in-right"></i><span>ログイン</span></a>
-                        <a class="btn btn-primary nav-cta" href="/register">無料で始める</a>
-                    {% endif %}
-                </div>
+                <button class="navbar-toggler" type="button" id="navMenuToggle" aria-controls="appNavigation" aria-expanded="false" aria-label="ナビゲーションを開く"><span class="navbar-toggler-icon"></span></button>
+                <div class="navbar-collapse" id="appNavigation">
+                    <div class="navbar-nav ms-auto align-items-lg-center">
+                        {% if current_user.is_authenticated %}
+                            <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/"><i class="bi bi-grid-1x2"></i><span>ワークスペース</span></a>
+                            <a class="nav-link {% if request.path == '/settings' %}active{% endif %}" href="/settings"><i class="bi bi-sliders"></i><span>設定</span></a>
+                            <form method="POST" action="/logout" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="nav-link border-0 bg-transparent"><i class="bi bi-box-arrow-right"></i><span>ログアウト</span></button>
+                            </form>
+                        {% else %}
+                            <a class="nav-link {% if request.path == '/login' %}active{% endif %}" href="/login"><i class="bi bi-box-arrow-in-right"></i><span>ログイン</span></a>
+                            <a class="btn btn-primary nav-cta" href="/register">無料で始める</a>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </nav>
