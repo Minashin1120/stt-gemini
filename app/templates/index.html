@@ -239,6 +239,7 @@
                 <div class="btn-group shadow-sm">
                     <button id="btnCopy" class="btn btn-outline-primary btn-sm" disabled><i class="bi bi-clipboard"></i></button>
                     <button id="btnFixSpacing" class="btn btn-outline-success btn-sm d-none" disabled><i class="bi bi-pencil-square"></i> 間隔修正</button>
+                    <button id="btnCorrectRephrase" class="btn btn-outline-success btn-sm" disabled title="音声・履歴を送らず、テキストのみで言い直しを除去します"><i class="bi bi-chat-left-quote"></i> 言い直し修正</button>
                     <button id="btnReanalyze" class="btn btn-outline-warning btn-sm" disabled><i class="bi bi-arrow-clockwise"></i> 再分析</button>
                     <button id="btnOpenDel" class="btn btn-outline-danger btn-sm" disabled data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash"></i></button>
                 </div>
@@ -1434,7 +1435,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = {
         recNew: document.getElementById('btnRecordNew'), recAdd: document.getElementById('btnRecordAppend'),
         pause: document.getElementById('btnPause'), stop: document.getElementById('btnStop'), cancel: document.getElementById('btnCancel'),
-        copy: document.getElementById('btnCopy'), fix: document.getElementById('btnFixSpacing'), imp: document.getElementById('btnImprove'), stat: document.getElementById('status'),
+        copy: document.getElementById('btnCopy'), fix: document.getElementById('btnFixSpacing'),
+        correctRephrase: document.getElementById('btnCorrectRephrase'),
+        imp: document.getElementById('btnImprove'), stat: document.getElementById('status'),
         res: document.getElementById('resultText'), tho: document.getElementById('thoughtText'), procBar: document.getElementById('processingBar'),
         ins: document.getElementById('instructionInput'), think: document.getElementById('thinking_level'),
         noise: document.getElementById('noiseSuppression'), rephrase: document.getElementById('allowRephraseCorrection'), filler: document.getElementById('allowFillerRemoval'), useAudio: document.getElementById('useAudioForImprove'),
@@ -1907,6 +1910,8 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
                 el.res.value = "";
                 el.tho.innerText = "";
                 el.re.disabled = el.delBtn.disabled = true;
+                if (el.fix) el.fix.disabled = true;
+                if (el.correctRephrase) el.correctRephrase.disabled = true;
                 loadHistory();
             } else {
                 showToast("リセットに失敗しました", true);
@@ -2002,6 +2007,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         el.re.disabled = true;
         el.delBtn.disabled = true;
         if (el.fix) el.fix.disabled = true;
+        if (el.correctRephrase) el.correctRephrase.disabled = true;
     }
 
     /** サーバー側で履歴クリア済みの前提で履歴パネルを空表示にする */
@@ -2089,6 +2095,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             el.re.disabled = true;
             el.delBtn.disabled = true;
             el.fix.disabled = true;
+            if (el.correctRephrase) el.correctRephrase.disabled = true;
             // リロードで消える前に保存できるようDLボタンを表示
             showErrorDownloadButton(true);
             streamSession = null;
@@ -2098,6 +2105,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         el.stat.innerText = "完了";
         el.copy.disabled = el.re.disabled = el.delBtn.disabled = false;
         if (getModel() === 'gemini-3.1-flash-lite') el.fix.disabled = false;
+        if (el.correctRephrase && el.res.value.trim()) el.correctRephrase.disabled = false;
         hideErrorDownloadButton();
         showToast("完了");
         loadHistory();
@@ -2641,6 +2649,42 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         } catch (e) {
             if (e.name !== 'AbortError') showToast("通信エラー", true);
         } finally{ el.fix.disabled=false; }
+    };
+    // テキストのみの言い直し修正（音声・履歴なし）。Flash-Lite 等で音声経路の言い直しが弱い場合の後処理用。
+    if (el.correctRephrase) el.correctRephrase.onclick = async () => {
+        const t = el.res.value;
+        if (!t || !t.trim()) { showToast("テキストがありません", true); return; }
+        const model = getModel();
+        const result = await ensureApiKeyForModel(model, false);
+        if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
+        const useModel = result.model;
+        isAppendMode = false;
+        el.stat.innerText = "言い直し修正中...";
+        el.correctRephrase.disabled = true;
+        abortController = new AbortController();
+        try {
+            const r = await csrfFetch('/correct_rephrase', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: t,
+                    thinking_level: el.think.value,
+                    model: useModel
+                }),
+                signal: abortController.signal
+            });
+            if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                showToast(err.error || "エラーが発生しました", true);
+                el.stat.innerText = "エラー";
+                return;
+            }
+            await handleStreamResponse(r);
+        } catch (e) {
+            if (e.name !== 'AbortError') showToast("通信エラー", true);
+        } finally {
+            if (el.res.value.trim()) el.correctRephrase.disabled = false;
+        }
     };
     el.ins.onkeypress=e=>{if(e.key==='Enter')el.imp.click();};
     document.getElementById('confirmDeleteBtn').onclick=async()=>{

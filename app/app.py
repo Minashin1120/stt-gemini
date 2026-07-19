@@ -1087,6 +1087,20 @@ STRICT INSTRUCTION WITH REPHRASE CORRECTION:
 4. Do NOT add explanations or notes. Output ONLY the final text.
 """
 
+# テキストのみの言い直し修正（音声・履歴を送らない後処理用）
+TEXT_REPHRASE_CORRECTION_PROMPT = """You are correcting a speech transcription for self-corrections (rephrasing).
+
+STRICT RULES:
+1. When the text shows the speaker started a phrase then immediately corrected it, keep only the corrected wording as the final text.
+2. Omit abandoned false starts and mistaken fragments that were clearly superseded by the correction.
+3. If there is no self-correction pattern, leave the text unchanged.
+4. Do NOT change wording for style, grammar "improvement", facts, or polish. Only remove superseded fragments.
+5. Preserve line breaks and punctuation of the kept text as much as possible.
+6. Do NOT add explanations, labels, or notes. Output ONLY the final corrected text.
+
+Transcription text:
+"""
+
 FILLER_REMOVAL_RULE = """
 Additionally, remove filler words, hesitations, and filled pauses such as "えーと", "あー", "うー", "んー", "えっと", "あのー", "そのー", "まあ", "えー", "あっ", "あの", "その", "ええと", "あのう", "そのう", and similar non-lexical vocalizations from the transcription. Transcribe the remaining substantive speech naturally and coherently, minimizing any impact on the substantive content.
 """
@@ -1329,6 +1343,41 @@ def improve():
     thread = threading.Thread(
         target=process_gemini_background,
         args=(task_id, api_key, payload, current_user.id, "improve", instruction, model)
+    )
+    thread.daemon = True
+    thread.start()
+    return create_stream_response(stream_task_updates(task_id), task_id)
+
+@app.route('/correct_rephrase', methods=['POST'])
+@login_required
+def correct_rephrase():
+    """テキストのみの言い直し修正。音声・履歴・単語リストは送らない。"""
+    reject_if_active_task()
+    if not check_user_model_rate_limit():
+        return jsonify({'error': '処理回数が上限を超えました。時間をおいて再度お試しください。'}), 429
+    api_key, data = current_user.get_api_key(), request.get_json(silent=True) or {}
+    if not api_key:
+        return jsonify({'error': 'API Key not set'}), 400
+    text = data.get('text') or ''
+    if not text:
+        return jsonify({'error': 'テキストを入力してください'}), 400
+    if len(text) > MAX_TEXT_LENGTH:
+        return jsonify({'error': '入力が長すぎます'}), 413
+
+    # 音声・履歴・単語リストを一切含めない（Flash-Lite で音声経路の言い直しが弱いための後処理）
+    prompt = TEXT_REPHRASE_CORRECTION_PROMPT + text
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
+    }
+    model = validate_model(data.get('model', 'gemini-3.5-flash'))
+    if model == 'grok-stt':
+        model = 'gemini-3.5-flash'  # Grok STT cannot do text correction
+    summary = "Rephrase correction (text only)"
+    task_id = create_task(current_user.id, "correct_rephrase", summary, model)
+    thread = threading.Thread(
+        target=process_gemini_background,
+        args=(task_id, api_key, payload, current_user.id, "correct_rephrase", summary, model)
     )
     thread.daemon = True
     thread.start()
