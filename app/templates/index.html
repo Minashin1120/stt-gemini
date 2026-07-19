@@ -234,14 +234,26 @@
         </div>
 
         <div class="card result-card mb-4 border-0">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+            <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center gap-2 py-3">
                 <div class="section-title section-title-small"><span class="section-icon"><i class="bi bi-file-text"></i></span><div><span>OUTPUT</span><h2>文字起こし結果</h2></div></div>
-                <div class="btn-group shadow-sm">
-                    <button id="btnCopy" class="btn btn-outline-primary btn-sm" disabled><i class="bi bi-clipboard"></i></button>
-                    <button id="btnFixSpacing" class="btn btn-outline-success btn-sm d-none" disabled><i class="bi bi-pencil-square"></i> 間隔修正</button>
-                    <button id="btnCorrectRephrase" class="btn btn-outline-success btn-sm" disabled title="音声・履歴を送らず、テキストのみで言い直しを除去します"><i class="bi bi-chat-left-quote"></i> 言い直し修正</button>
-                    <button id="btnReanalyze" class="btn btn-outline-warning btn-sm" disabled><i class="bi bi-arrow-clockwise"></i> 再分析</button>
-                    <button id="btnOpenDel" class="btn btn-outline-danger btn-sm" disabled data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash"></i></button>
+                <div class="btn-group shadow-sm result-icon-actions">
+                    <button id="btnCopy" class="btn btn-outline-primary btn-sm" disabled title="コピー"><i class="bi bi-clipboard"></i></button>
+                    <button id="btnReanalyze" class="btn btn-outline-warning btn-sm" disabled title="再分析"><i class="bi bi-arrow-clockwise"></i> 再分析</button>
+                    <button id="btnOpenDel" class="btn btn-outline-danger btn-sm" disabled data-bs-toggle="modal" data-bs-target="#deleteModal" title="音声削除"><i class="bi bi-trash"></i></button>
+                </div>
+            </div>
+            <!-- 後処理（音声・履歴を送らない）。ヘッダから分離して常に見えるようにする -->
+            <div class="result-postprocess-bar px-3 py-2">
+                <div class="result-postprocess-label small text-muted mb-1">
+                    <i class="bi bi-magic me-1"></i>結果の後処理（テキストのみ・音声と履歴は送信しません）
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" id="btnCorrectRephrase" class="btn btn-success btn-sm" disabled title="音声・履歴を送らず、テキストのみで言い直しを除去します">
+                        <i class="bi bi-chat-quote me-1"></i>言い直し修正
+                    </button>
+                    <button type="button" id="btnFixSpacing" class="btn btn-outline-success btn-sm d-none" disabled title="不自然な空白を除去します">
+                        <i class="bi bi-pencil-square me-1"></i>間隔修正
+                    </button>
                 </div>
             </div>
             <div class="card-body p-0 position-relative"><div id="processingBar" class="processing-bar-container d-none"><div class="processing-bar"></div></div><textarea id="resultText" class="form-control border-0" rows="10" placeholder="文字起こし結果がここに表示されます" style="resize:none;"></textarea></div>
@@ -2104,8 +2116,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
 
         el.stat.innerText = "完了";
         el.copy.disabled = el.re.disabled = el.delBtn.disabled = false;
-        if (getModel() === 'gemini-3.1-flash-lite') el.fix.disabled = false;
-        if (el.correctRephrase && el.res.value.trim()) el.correctRephrase.disabled = false;
+        syncPostprocessButtons();
         hideErrorDownloadButton();
         showToast("完了");
         loadHistory();
@@ -2650,6 +2661,14 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             if (e.name !== 'AbortError') showToast("通信エラー", true);
         } finally{ el.fix.disabled=false; }
     };
+    // 結果テキストがあるときは後処理ボタンを有効化（手編集・貼り付けにも追従）
+    function syncPostprocessButtons() {
+        const hasText = !!(el.res && el.res.value.trim());
+        if (el.correctRephrase) el.correctRephrase.disabled = !hasText;
+        if (el.fix && getModel() === 'gemini-3.1-flash-lite') el.fix.disabled = !hasText;
+    }
+    if (el.res) el.res.addEventListener('input', syncPostprocessButtons);
+
     // テキストのみの言い直し修正（音声・履歴なし）。Flash-Lite 等で音声経路の言い直しが弱い場合の後処理用。
     if (el.correctRephrase) el.correctRephrase.onclick = async () => {
         const t = el.res.value;
@@ -2677,13 +2696,14 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
                 const err = await r.json().catch(() => ({}));
                 showToast(err.error || "エラーが発生しました", true);
                 el.stat.innerText = "エラー";
+                syncPostprocessButtons();
                 return;
             }
             await handleStreamResponse(r);
         } catch (e) {
             if (e.name !== 'AbortError') showToast("通信エラー", true);
         } finally {
-            if (el.res.value.trim()) el.correctRephrase.disabled = false;
+            syncPostprocessButtons();
         }
     };
     el.ins.onkeypress=e=>{if(e.key==='Enter')el.imp.click();};
