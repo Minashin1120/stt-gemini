@@ -248,7 +248,7 @@
                     <i class="bi bi-magic me-1"></i>結果の後処理（テキストのみ・音声と履歴は送信しません）
                 </div>
                 <div class="d-flex flex-wrap gap-2">
-                    <button type="button" id="btnCorrectRephrase" class="btn btn-success btn-sm" disabled title="音声・履歴を送らず、テキストのみで言い直しを除去します">
+                    <button type="button" id="btnCorrectRephrase" class="btn btn-success btn-sm d-none" disabled title="音声・履歴を送らず、テキストのみで言い直しを除去します">
                         <i class="bi bi-chat-quote me-1"></i>言い直し修正
                     </button>
                     <button type="button" id="btnFixSpacing" class="btn btn-outline-success btn-sm d-none" disabled title="不自然な空白を除去します">
@@ -1770,6 +1770,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (thinkingOpen) thoughtCol.hide();
     }
     updateFixSpacingButton();
+    updateCorrectRephraseButton();
     
     el.think.addEventListener('change', saveSet);
     if(el.noise) el.noise.addEventListener('change', saveSet);
@@ -1783,10 +1784,18 @@ document.addEventListener('DOMContentLoaded', () => {
             el.fix.classList.add('d-none');
         }
     }
+    function updateCorrectRephraseButton() {
+        if (getModel() === 'gemini-3.1-flash-lite') {
+            el.correctRephrase.classList.remove('d-none');
+        } else {
+            el.correctRephrase.classList.add('d-none');
+        }
+    }
 
 document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', (e) => {
     saveSet();
     updateFixSpacingButton();
+    updateCorrectRephraseButton();
     // Grok STT選択時は思考プロセスアコーディオンを非表示にする
     if (e.target.value === 'grok-stt' && e.target.checked) {
         if (thinkingOpen) thoughtCol.hide();
@@ -2664,8 +2673,9 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
     // 結果テキストがあるときは後処理ボタンを有効化（手編集・貼り付けにも追従）
     function syncPostprocessButtons() {
         const hasText = !!(el.res && el.res.value.trim());
-        if (el.correctRephrase) el.correctRephrase.disabled = !hasText;
-        if (el.fix && getModel() === 'gemini-3.1-flash-lite') el.fix.disabled = !hasText;
+        const isLite = getModel() === 'gemini-3.1-flash-lite';
+        if (el.correctRephrase) { el.correctRephrase.disabled = !hasText; }
+        if (el.fix && isLite) { el.fix.disabled = !hasText; }
     }
     if (el.res) el.res.addEventListener('input', syncPostprocessButtons);
 
