@@ -242,8 +242,8 @@
                     <button id="btnOpenDel" class="btn btn-outline-danger btn-sm" disabled data-bs-toggle="modal" data-bs-target="#deleteModal" title="音声削除"><i class="bi bi-trash"></i></button>
                 </div>
             </div>
-            <!-- 後処理（音声・履歴を送らない）。ヘッダから分離して常に見えるようにする -->
-            <div class="result-postprocess-bar px-3 py-2">
+            <!-- 後処理（音声・履歴を送らない）。Flash-Lite 選択時のみ表示 -->
+            <div class="result-postprocess-bar px-3 py-2 d-none">
                 <div class="result-postprocess-label small text-muted mb-1">
                     <i class="bi bi-magic me-1"></i>結果の後処理（テキストのみ・音声と履歴は送信しません）
                 </div>
@@ -1769,33 +1769,24 @@ document.addEventListener('DOMContentLoaded', () => {
         el.think.title = 'Grok STTでは推論レベルは使用されません';
         if (thinkingOpen) thoughtCol.hide();
     }
-    updateFixSpacingButton();
-    updateCorrectRephraseButton();
+    updatePostprocessBar();
     
     el.think.addEventListener('change', saveSet);
     if(el.noise) el.noise.addEventListener('change', saveSet);
     if(el.rephrase) el.rephrase.addEventListener('change', saveSet);
     if(el.filler) el.filler.addEventListener('change', saveSet);
     document.querySelectorAll('input[name="format"]').forEach(r=>r.addEventListener('change', saveSet));
-    function updateFixSpacingButton() {
-        if (getModel() === 'gemini-3.1-flash-lite') {
-            el.fix.classList.remove('d-none');
-        } else {
-            el.fix.classList.add('d-none');
-        }
+    function updatePostprocessBar() {
+        const isLite = getModel() === 'gemini-3.1-flash-lite';
+        const bar = document.querySelector('.result-postprocess-bar');
+        if (bar) bar.classList.toggle('d-none', !isLite);
     }
-    function updateCorrectRephraseButton() {
-        if (getModel() === 'gemini-3.1-flash-lite') {
-            el.correctRephrase.classList.remove('d-none');
-        } else {
-            el.correctRephrase.classList.add('d-none');
-        }
-    }
+    // updateFixSpacingButton remains as a no-op stub for backward compat; disabled state handled in syncPostprocessButtons
+    function updateFixSpacingButton() { updatePostprocessBar(); }
 
 document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', (e) => {
     saveSet();
-    updateFixSpacingButton();
-    updateCorrectRephraseButton();
+    updatePostprocessBar();
     // Grok STT選択時は思考プロセスアコーディオンを非表示にする
     if (e.target.value === 'grok-stt' && e.target.checked) {
         if (thinkingOpen) thoughtCol.hide();
