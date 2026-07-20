@@ -248,10 +248,10 @@
                     <i class="bi bi-magic me-1"></i>結果の後処理（テキストのみ・音声と履歴は送信しません）
                 </div>
                 <div class="d-flex flex-wrap gap-2">
-                    <button type="button" id="btnCorrectRephrase" class="btn btn-success btn-sm d-none" disabled title="音声・履歴を送らず、テキストのみで言い直しを除去します">
+                    <button type="button" id="btnCorrectRephrase" class="btn btn-success btn-sm" disabled title="音声・履歴を送らず、テキストのみで言い直しを除去します">
                         <i class="bi bi-chat-quote me-1"></i>言い直し修正
                     </button>
-                    <button type="button" id="btnFixSpacing" class="btn btn-outline-success btn-sm d-none" disabled title="不自然な空白を除去します">
+                    <button type="button" id="btnFixSpacing" class="btn btn-outline-success btn-sm" disabled title="不自然な空白を除去します">
                         <i class="bi bi-pencil-square me-1"></i>間隔修正
                     </button>
                 </div>
@@ -1781,8 +1781,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const bar = document.querySelector('.result-postprocess-bar');
         if (bar) bar.classList.toggle('d-none', !isLite);
     }
-    // updateFixSpacingButton remains as a no-op stub for backward compat; disabled state handled in syncPostprocessButtons
-    function updateFixSpacingButton() { updatePostprocessBar(); }
+
 
 document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', (e) => {
     saveSet();
