@@ -187,8 +187,12 @@
                     <div class="col-md-6 text-start">
                         <label class="form-label small fw-bold mb-1 text-muted"><i class="bi bi-cpu"></i> モデル</label>
                         <div class="btn-group w-100" role="group">
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash35" value="gemini-3.5-flash" checked>
+                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash36" value="gemini-3.6-flash" checked>
+                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash36">3.6 Flash</label>
+                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash35" value="gemini-3.5-flash">
                             <label class="btn btn-outline-primary btn-sm" for="mdl_flash35">3.5 Flash</label>
+                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash35lite" value="gemini-3.5-flash-lite">
+                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash35lite">3.5 Flash-Lite</label>
                             <input type="radio" class="btn-check" name="model_select" id="mdl_flash3" value="gemini-3-flash-preview">
                             <label class="btn btn-outline-primary btn-sm" for="mdl_flash3">3.0 Flash</label>
                             <input type="radio" class="btn-check" name="model_select" id="mdl_flash31lite" value="gemini-3.1-flash-lite">
@@ -692,7 +696,9 @@ async function showSwitchView(currentModel) {
         const models = [];
         if (data.has_gemini_key) {
             models.push(
+                { label: '3.6 Flash', value: 'gemini-3.6-flash' },
                 { label: '3.5 Flash', value: 'gemini-3.5-flash' },
+                { label: '3.5 Flash-Lite', value: 'gemini-3.5-flash-lite' },
                 { label: '3.0 Flash', value: 'gemini-3-flash-preview' },
                 { label: '3.1 Flash-Lite', value: 'gemini-3.1-flash-lite' }
             );
@@ -1777,7 +1783,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(el.filler) el.filler.addEventListener('change', saveSet);
     document.querySelectorAll('input[name="format"]').forEach(r=>r.addEventListener('change', saveSet));
     function updatePostprocessBar() {
-        const isLite = getModel() === 'gemini-3.1-flash-lite';
+        const isLite = getModel() === 'gemini-3.1-flash-lite' || getModel() === 'gemini-3.5-flash-lite';
         const bar = document.querySelector('.result-postprocess-bar');
         if (bar) bar.classList.toggle('d-none', !isLite);
     }
@@ -2663,7 +2669,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
     // 結果テキストがあるときは後処理ボタンを有効化（手編集・貼り付けにも追従）
     function syncPostprocessButtons() {
         const hasText = !!(el.res && el.res.value.trim());
-        const isLite = getModel() === 'gemini-3.1-flash-lite';
+        const isLite = getModel() === 'gemini-3.1-flash-lite' || getModel() === 'gemini-3.5-flash-lite';
         if (el.correctRephrase) { el.correctRephrase.disabled = !hasText; }
         if (el.fix && isLite) { el.fix.disabled = !hasText; }
     }
