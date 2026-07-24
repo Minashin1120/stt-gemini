@@ -1752,23 +1752,27 @@ document.addEventListener('DOMContentLoaded', () => {
         const checked = document.querySelector('input[name="model_select"]:checked');
         return checked ? checked.value : 'gemini-3-flash-preview';
     }
+    let currentModel = getModel();
     function saveSet(){ 
-        localStorage.setItem('stt_t', el.think.value);
+        localStorage.setItem('stt_t_' + getModel(), el.think.value);
         if(el.noise) localStorage.setItem('stt_n', el.noise.checked);
         if(el.rephrase) localStorage.setItem('stt_r', el.rephrase.checked);
         if(el.filler) localStorage.setItem('stt_fl', el.filler.checked);
         const fmt = document.querySelector('input[name="format"]:checked');
         if(fmt) localStorage.setItem('stt_f', fmt.value);
         localStorage.setItem('stt_m', getModel());
+        currentModel = getModel();
     }
     
-    const t=localStorage.getItem('stt_t'), n=localStorage.getItem('stt_n'), rephraseSaved=localStorage.getItem('stt_r'), fillerSaved=localStorage.getItem('stt_fl'), f=localStorage.getItem('stt_f'), m=localStorage.getItem('stt_m');
-    if(t) el.think.value=t;
+    const n=localStorage.getItem('stt_n'), rephraseSaved=localStorage.getItem('stt_r'), fillerSaved=localStorage.getItem('stt_fl'), f=localStorage.getItem('stt_f'), m=localStorage.getItem('stt_m');
     if(n!==null && el.noise) el.noise.checked=(n==='true');
     if(rephraseSaved!==null && el.rephrase) el.rephrase.checked=(rephraseSaved==='true');
     if(fillerSaved!==null && el.filler) el.filler.checked=(fillerSaved==='true');
     if(f) { const r = document.querySelector(`input[name="format"][value="${f}"]`); if(r) r.checked=true; }
     if(m) { const r = document.querySelector(`input[name="model_select"][value="${m}"]`); if(r) r.checked=true; }
+    currentModel = getModel();
+    const savedThink = localStorage.getItem('stt_t_' + currentModel);
+    if (savedThink) el.think.value = savedThink;
     // Grok STTが初期選択されている場合、推論レベルを無効化
     if (getModel() === 'grok-stt') {
         el.think.disabled = true;
@@ -1790,9 +1794,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', (e) => {
-    saveSet();
+    if (e.target.checked) {
+        localStorage.setItem('stt_t_' + currentModel, el.think.value);
+        currentModel = e.target.value;
+        const savedThink = localStorage.getItem('stt_t_' + currentModel);
+        if (savedThink) el.think.value = savedThink;
+    }
     updatePostprocessBar();
-    // Grok STT選択時は思考プロセスアコーディオンを非表示にする
     if (e.target.value === 'grok-stt' && e.target.checked) {
         if (thinkingOpen) thoughtCol.hide();
         el.think.disabled = true;
