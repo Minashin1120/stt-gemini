@@ -1796,6 +1796,7 @@ document.addEventListener('DOMContentLoaded', () => {
 document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', (e) => {
     if (e.target.checked) {
         localStorage.setItem('stt_t_' + currentModel, el.think.value);
+        localStorage.setItem('stt_m', e.target.value);
         currentModel = e.target.value;
         const savedThink = localStorage.getItem('stt_t_' + currentModel);
         if (savedThink) el.think.value = savedThink;
