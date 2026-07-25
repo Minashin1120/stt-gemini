@@ -1107,10 +1107,16 @@ FILLER_REMOVAL_RULE = """
 Additionally, remove filler words, hesitations, and filled pauses such as "えーと", "あー", "うー", "んー", "えっと", "あのー", "そのー", "まあ", "えー", "あっ", "あの", "その", "ええと", "あのう", "そのう", and similar non-lexical vocalizations from the transcription. Transcribe the remaining substantive speech naturally and coherently, minimizing any impact on the substantive content.
 """
 
+LITE_OUTPUT_CORRECTION = """
+Additionally, for this transcription:
+1. Do NOT insert unnatural spaces in the Japanese text.
+2. If the entire output lacks punctuation marks (such as "。" or "、"), add appropriate punctuation to improve readability. If any punctuation is already present, leave punctuation unchanged.
+"""
+
 def is_truthy(value):
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
-def build_transcription_prompt(history_context, word_list_context, mode_label, allow_rephrase_correction=False, allow_filler_removal=False):
+def build_transcription_prompt(history_context, word_list_context, mode_label, allow_rephrase_correction=False, allow_filler_removal=False, is_lite_model=False):
     prompt = f"{history_context}\n{word_list_context}\n"
     if allow_rephrase_correction:
         base_instruction = REPHRASE_AWARE_INSTRUCTION
@@ -1118,6 +1124,8 @@ def build_transcription_prompt(history_context, word_list_context, mode_label, a
         base_instruction = VERBATIM_INSTRUCTION
     if allow_filler_removal:
         base_instruction += FILLER_REMOVAL_RULE
+    if is_lite_model:
+        base_instruction += LITE_OUTPUT_CORRECTION
     if allow_rephrase_correction:
         prompt += f"MODE: {mode_label}\nTASK: {base_instruction}"
     else:
@@ -1190,12 +1198,14 @@ def transcribe():
     
     allow_rephrase_correction = is_truthy(request.form.get('allow_rephrase_correction'))
     allow_filler_removal = is_truthy(request.form.get('allow_filler_removal'))
+    is_lite = model in ('gemini-3.5-flash-lite', 'gemini-3.1-flash-lite')
     full_prompt = build_transcription_prompt(
         history_context,
         word_list_context,
         "The user enabled rephrase correction mode for this transcription.",
         allow_rephrase_correction=allow_rephrase_correction,
         allow_filler_removal=allow_filler_removal,
+        is_lite_model=is_lite,
     )
     
     payload = {
@@ -1252,6 +1262,7 @@ def reanalyze():
     word_list_context = get_word_list_context(current_user.id)
     allow_rephrase_correction = is_truthy(data.get('allow_rephrase_correction'))
     allow_filler_removal = is_truthy(data.get('allow_filler_removal'))
+    is_lite = model in ('gemini-3.5-flash-lite', 'gemini-3.1-flash-lite')
     if allow_rephrase_correction:
         base_instruction = REPHRASE_AWARE_INSTRUCTION
         mode_line = "MODE: The user enabled rephrase correction mode for this re-analysis."
@@ -1260,6 +1271,8 @@ def reanalyze():
         mode_line = ""
     if allow_filler_removal:
         base_instruction += FILLER_REMOVAL_RULE
+    if is_lite:
+        base_instruction += LITE_OUTPUT_CORRECTION
     prompt_parts = [history_context, word_list_context]
     if mode_line:
         prompt_parts.append(mode_line)
@@ -1681,11 +1694,13 @@ def upload_complete():
 
     allow_rephrase_correction = is_truthy(request.form.get('allow_rephrase_correction'))
     allow_filler_removal = is_truthy(request.form.get('allow_filler_removal'))
+    is_lite = model in ('gemini-3.5-flash-lite', 'gemini-3.1-flash-lite')
     full_prompt = build_transcription_prompt(
         history_context, word_list_context,
         "The user enabled rephrase correction mode for this transcription.",
         allow_rephrase_correction=allow_rephrase_correction,
         allow_filler_removal=allow_filler_removal,
+        is_lite_model=is_lite,
     )
 
     payload = {
