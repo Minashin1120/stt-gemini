@@ -489,17 +489,19 @@ function updateManageVisibility() {
 // モーダル内のイベントリスナー設定
 document.addEventListener('DOMContentLoaded', () => {
     const btnWordSet = document.getElementById('btnWordSet');
-    btnWordSet.addEventListener('click', function(e) {
-        if (e.detail === 1) {
+    let clickTimer = null;
+    btnWordSet.addEventListener('click', function() {
+        if (clickTimer) {
+            clearTimeout(clickTimer);
+            clickTimer = null;
+            resetWordSets();
+            return;
+        }
+        clickTimer = setTimeout(() => {
+            clickTimer = null;
             loadWordSetStatus();
             bootstrap.Modal.getOrCreateInstance(document.getElementById('wordSetModal')).show();
-        }
-    });
-    btnWordSet.addEventListener('dblclick', function(e) {
-        e.stopPropagation();
-        const m = bootstrap.Modal.getInstance(document.getElementById('wordSetModal'));
-        if (m) m.hide();
-        resetWordSets();
+        }, 200);
     });
 
     const selector = document.getElementById('manageSetSelector');
