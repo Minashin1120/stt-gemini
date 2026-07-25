@@ -990,6 +990,8 @@ body.app-body {
 
 .modal { z-index: 2050; }
 .modal-backdrop { z-index: 2040; }
+#btnWordSetReset { padding:0 4px; color:inherit; opacity:.7; }
+#btnWordSetReset:hover { opacity:1; }
 .modal.fade .modal-dialog { transform: translateY(22px) scale(.97); transition: transform .3s cubic-bezier(.22,1,.36,1); }
 .modal.show .modal-dialog { transform: translateY(0) scale(1); }
 #wordSetModal.fade .modal-dialog { transition-duration: .1s; }
