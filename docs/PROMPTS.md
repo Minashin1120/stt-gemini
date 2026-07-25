@@ -125,6 +125,17 @@ MODE: The user enabled rephrase correction mode for this transcription.
 Additionally, remove filler words, hesitations, and filled pauses such as "えーと", "あー", "うー", "んー", "えっと", "あのー", "そのー", "まあ", "えー", "あっ", "あの", "その", "ええと", "あのう", "そのう", and similar non-lexical vocalizations from the transcription. Transcribe the remaining substantive speech naturally and coherently, minimizing any impact on the substantive content.
 ```
 
+### 3.4 Flash-Lite 追加指示 — `LITE_OUTPUT_CORRECTION`
+
+`gemini-3.5-flash-lite` / `gemini-3.1-flash-lite` 選択時のみ、文字起こしの TASK 指示の末尾に自動追加されます。
+不自然なスペースの挿入を抑制し、句読点の完全欠落を補います。
+
+```text
+Additionally, for this transcription:
+1. Do NOT insert unnatural spaces in the Japanese text.
+2. If the entire output lacks punctuation marks (such as "。" or "、"), add appropriate punctuation to improve readability. If any punctuation is already present, leave punctuation unchanged.
+```
+
 ---
 
 ## 4. 組み立て関数 `build_transcription_prompt`
@@ -138,6 +149,7 @@ def build_transcription_prompt(
     mode_label,
     allow_rephrase_correction=False,
     allow_filler_removal=False,
+    is_lite_model=False,
 ):
     prompt = f"{history_context}\n{word_list_context}\n"
     if allow_rephrase_correction:
@@ -146,6 +158,8 @@ def build_transcription_prompt(
         base_instruction = VERBATIM_INSTRUCTION
     if allow_filler_removal:
         base_instruction += FILLER_REMOVAL_RULE
+    if is_lite_model:
+        base_instruction += LITE_OUTPUT_CORRECTION
     if allow_rephrase_correction:
         prompt += f"MODE: {mode_label}\nTASK: {base_instruction}"
     else:
@@ -155,12 +169,13 @@ def build_transcription_prompt(
 
 **組み合わせマトリクス**
 
-| 言い直し | フィラー | 使用する TASK 本体 |
-|:--------:|:--------:|-------------------|
-| OFF | OFF | `VERBATIM_INSTRUCTION` |
-| ON | OFF | `REPHRASE_AWARE_INSTRUCTION` + MODE 行 |
-| OFF | ON | `VERBATIM` + `FILLER_REMOVAL_RULE` |
-| ON | ON | `REPHRASE_AWARE` + `FILLER` + MODE 行 |
+| 言い直し | フィラー | Lite モデル | 使用する TASK 本体 |
+|:--------:|:--------:|:----------:|-------------------|
+| OFF | OFF | OFF | `VERBATIM_INSTRUCTION` |
+| ON | OFF | OFF | `REPHRASE_AWARE_INSTRUCTION` + MODE 行 |
+| OFF | ON | OFF | `VERBATIM` + `FILLER_REMOVAL_RULE` |
+| ON | ON | OFF | `REPHRASE_AWARE` + `FILLER` + MODE 行 |
+| 任意 | 任意 | ON | 上記の末尾に `LITE_OUTPUT_CORRECTION` を追加 |
 
 ---
 
@@ -225,7 +240,10 @@ TASK: {base_instruction}
 ## 7. 間隔修正（Flash-Lite 用 UI）
 
 フロントエンド `app/templates/index.html` の「間隔修正」ボタンは、`/improve` を固定指示で呼びます。  
-3.1 Flash-Lite 利用時に不自然なスペースが入りやすいことへの対策です。
+3.1 Flash-Lite / 3.5 Flash-Lite 利用時に不自然なスペースが入りやすいことへの対策です。
+
+文字起こしのプロンプトにも、`LITE_OUTPUT_CORRECTION`（不自然なスペース除去・句読点補完の指示）が組み込まれています（§3 参照）。  
+そのため、通常はボタンを押さなくても修正が適用されます。ボタンはバックアップ用として残してあります。
 
 **固定 `instruction`（全文）:**
 
@@ -266,7 +284,7 @@ TASK: {base_instruction}
 
 | 項目 | ファイル | シンボル / 箇所 |
 |------|----------|-----------------|
-| Verbatim / Rephrase / Filler | `app/app.py` | `VERBATIM_INSTRUCTION`, `REPHRASE_AWARE_INSTRUCTION`, `FILLER_REMOVAL_RULE` |
+| Verbatim / Rephrase / Filler / Lite | `app/app.py` | `VERBATIM_INSTRUCTION`, `REPHRASE_AWARE_INSTRUCTION`, `FILLER_REMOVAL_RULE`, `LITE_OUTPUT_CORRECTION` |
 | 組み立て | `app/app.py` | `build_transcription_prompt` |
 | 履歴 / 単語コンテキスト | `app/app.py` | `get_active_history_context`, `get_word_list_context` |
 | 文字起こし | `app/app.py` | `transcribe`, `upload_complete` |
