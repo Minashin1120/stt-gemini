@@ -95,7 +95,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div class="section-title text-start"><span class="section-icon"><i class="bi bi-mic"></i></span><div><span>INPUT</span><h2>音声入力</h2></div></div>
                     <div class="d-flex gap-2 utility-actions">
-                        <button id="btnWordSet" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#wordSetModal" onclick="loadWordSetStatus()" ondblclick="resetWordSets()"><i class="bi bi-journal-text"></i> 単語リスト</button>
+                        <button id="btnWordSet" class="btn btn-outline-primary btn-sm"><i class="bi bi-journal-text"></i> 単語リスト</button>
                         <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#fileManagerModal" onclick="loadFileMetadata()"><i class="bi bi-folder"></i> データ</button>
                         <button id="btnReset" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash3-fill"></i> 一括削除</button>
                     </div>
@@ -488,6 +488,22 @@ function updateManageVisibility() {
 
 // モーダル内のイベントリスナー設定
 document.addEventListener('DOMContentLoaded', () => {
+    const btnWordSet = document.getElementById('btnWordSet');
+    let clickTimer = null;
+    btnWordSet.addEventListener('click', function() {
+        if (clickTimer) {
+            clearTimeout(clickTimer);
+            clickTimer = null;
+            resetWordSets();
+            return;
+        }
+        clickTimer = setTimeout(() => {
+            clickTimer = null;
+            loadWordSetStatus();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('wordSetModal')).show();
+        }, 250);
+    });
+
     const selector = document.getElementById('manageSetSelector');
     const container = document.getElementById('wordSetsManageContainer');
 
