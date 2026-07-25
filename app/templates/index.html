@@ -96,6 +96,7 @@
                     <div class="section-title text-start"><span class="section-icon"><i class="bi bi-mic"></i></span><div><span>INPUT</span><h2>音声入力</h2></div></div>
                     <div class="d-flex gap-2 utility-actions">
                         <button id="btnWordSet" class="btn btn-outline-primary btn-sm"><i class="bi bi-journal-text"></i> 単語リスト</button>
+                        <button id="btnWordSetReset" class="btn btn-outline-secondary btn-sm border-0" style="display:none" onclick="resetWordSets()"><i class="bi bi-x-lg"></i></button>
                         <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#fileManagerModal" onclick="loadFileMetadata()"><i class="bi bi-folder"></i> データ</button>
                         <button id="btnReset" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash3-fill"></i> 一括削除</button>
                     </div>
@@ -488,20 +489,9 @@ function updateManageVisibility() {
 
 // モーダル内のイベントリスナー設定
 document.addEventListener('DOMContentLoaded', () => {
-    const btnWordSet = document.getElementById('btnWordSet');
-    let clickTimer = null;
-    btnWordSet.addEventListener('click', function() {
-        if (clickTimer) {
-            clearTimeout(clickTimer);
-            clickTimer = null;
-            resetWordSets();
-            return;
-        }
-        clickTimer = setTimeout(() => {
-            clickTimer = null;
-            loadWordSetStatus();
-            bootstrap.Modal.getOrCreateInstance(document.getElementById('wordSetModal')).show();
-        }, 200);
+    document.getElementById('btnWordSet').addEventListener('click', function() {
+        loadWordSetStatus();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('wordSetModal')).show();
     });
 
     const selector = document.getElementById('manageSetSelector');
@@ -550,16 +540,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function updateWordSetButtonText(sets) {
     const btn = document.getElementById('btnWordSet');
+    const resetBtn = document.getElementById('btnWordSetReset');
     if (!btn) return;
     const activeNames = sets.filter(s => s.is_active).map(s => s.name);
     if (activeNames.length > 0) {
         btn.innerHTML = `<i class="bi bi-journal-check"></i> ${escapeHtml(activeNames.join(', '))}`;
         btn.classList.remove('btn-outline-primary');
         btn.classList.add('btn-primary', 'text-white');
+        if (resetBtn) resetBtn.style.display = '';
     } else {
         btn.innerHTML = `<i class="bi bi-journal-text"></i> 単語リスト`;
         btn.classList.remove('btn-primary', 'text-white');
         btn.classList.add('btn-outline-primary');
+        if (resetBtn) resetBtn.style.display = 'none';
     }
 }
 
