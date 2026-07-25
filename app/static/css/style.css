@@ -992,6 +992,9 @@ body.app-body {
 .modal-backdrop { z-index: 2040; }
 .modal.fade .modal-dialog { transform: translateY(22px) scale(.97); transition: transform .3s cubic-bezier(.22,1,.36,1); }
 .modal.show .modal-dialog { transform: translateY(0) scale(1); }
+#wordSetModal.fade .modal-dialog { transition-duration: .1s; }
+#wordSetModal.show .modal-dialog { transform: translateY(0) scale(1); }
+#wordSetModal + .modal-backdrop { transition: opacity .1s ease; }
 .modal-content { overflow: hidden; border-radius: 20px !important; box-shadow: 0 30px 80px rgba(18,28,48,.22) !important; }
 .modal-backdrop.show { opacity: .34; backdrop-filter: blur(5px); }
 .toast { border-radius: 14px; box-shadow: 0 16px 40px rgba(18,28,48,.18); animation: toastIn .35s cubic-bezier(.22,1,.36,1); }
