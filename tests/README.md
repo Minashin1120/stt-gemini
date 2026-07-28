@@ -48,7 +48,7 @@ python -m unittest tests.test_security -v
 重点:
 
 - 不正な拡張子・巨大ペイロード・他ユーザーファイルへのアクセス拒否
-- マイク取得時の必須OFF制約とAudioWorklet配信
+- マイク取得時の必須OFF制約、モバイル内蔵マイクの厳密指定、AudioWorklet配信
 - ログイン必須エンドポイント
 - タスク同時実行制限やキャンセルの基本挙動（モック前提）
 

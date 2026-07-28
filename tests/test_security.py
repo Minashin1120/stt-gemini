@@ -216,6 +216,24 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn('applyConstraints(', acquisition)
         self.assertNotIn('googNoiseSuppression', acquisition)
 
+    def test_mobile_recording_pins_the_built_in_microphone_by_exact_device_id(self):
+        template_path = os.path.join(
+            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
+        )
+        with open(template_path, encoding='utf-8') as template:
+            source = template.read()
+        acquisition = source[
+            source.index('const EXTERNAL_MIC_LABEL_PATTERN'):
+            source.index('function appendCapturedPcm')
+        ]
+        self.assertIn('navigator.mediaDevices.enumerateDevices()', acquisition)
+        self.assertIn('function findBuiltInMicDevice(devices)', acquisition)
+        self.assertIn('common.deviceId = { exact: preferredDevice.deviceId }', acquisition)
+        self.assertIn("routingMode = 'built-in-exact-verified'", acquisition)
+        self.assertIn('selected.deviceId === builtInDevice.deviceId', acquisition)
+        self.assertIn('isExternalMicLabel', acquisition)
+        self.assertNotIn('deviceId: { ideal:', acquisition)
+
     def test_all_templates_compile(self):
         with application.app.app_context():
             for template_name in application.app.jinja_env.list_templates():
