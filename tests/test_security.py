@@ -196,6 +196,26 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn("'unsafe-eval'", response.headers['Content-Security-Policy'])
         self.assertIn('max-age=31536000', response.headers['Strict-Transport-Security'])
 
+    def test_pcm_capture_worklet_is_served_as_javascript(self):
+        response = application.app.test_client().get('/static/js/pcm-capture-worklet.js')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('javascript', response.content_type)
+        self.assertIn(b"registerProcessor('stt-pcm-capture'", response.data)
+        response.close()
+
+    def test_recording_uses_initial_exact_constraints_without_reapplying(self):
+        template_path = os.path.join(
+            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
+        )
+        with open(template_path, encoding='utf-8') as template:
+            source = template.read()
+        acquisition = source[source.index('function buildMicConstraintAttempts'):source.index('function appendCapturedPcm')]
+        self.assertIn("echoCancellation: { exact: false }", acquisition)
+        self.assertIn("noiseSuppression: { exact: false }", acquisition)
+        self.assertIn("navigator.mediaDevices.getUserMedia({ audio: attempt.constraints })", acquisition)
+        self.assertNotIn('applyConstraints(', acquisition)
+        self.assertNotIn('googNoiseSuppression', acquisition)
+
     def test_all_templates_compile(self):
         with application.app.app_context():
             for template_name in application.app.jinja_env.list_templates():

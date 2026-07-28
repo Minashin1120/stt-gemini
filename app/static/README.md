@@ -1,6 +1,6 @@
 # `app/static/` — 静的アセット
 
-Flask の `static` フォルダです。現状は CSS のみをリポジトリ管理しています。
+Flask の `static` フォルダです。CSS と録音用 AudioWorklet をリポジトリ管理しています。
 
 親ドキュメント: [../README.md](../README.md) · テンプレート: [../templates/README.md](../templates/README.md)
 
@@ -10,11 +10,14 @@ Flask の `static` フォルダです。現状は CSS のみをリポジトリ�
 
 ```text
 static/
-└── css/
-    └── style.css    # テーマ別スタイル・アニメーション・モーダル
+├── css/
+│   └── style.css                 # テーマ別スタイル・アニメーション・モーダル
+└── js/
+    └── pcm-capture-worklet.js    # 音声スレッド上でPCMを欠落なく収集
 ```
 
-JavaScript の大半は `templates/index.html` 等にインライン配置しています（外部 JS バンドルなし）。  
+JavaScript の大半は `templates/index.html` 等にインライン配置し、リアルタイム録音だけを
+メインスレッドの負荷から分離するため AudioWorklet にしています（外部 JS バンドルなし）。
 Bootstrap / Bootstrap Icons は CDN から読み込みます。
 
 ---
@@ -49,6 +52,13 @@ Bootstrap / Bootstrap Icons は CDN から読み込みます。
 2. モーダルの `z-index` / backdrop は Bootstrap モーダルと競合しやすいので、変更時はログイン・削除確認・API キーの重なりを確認
 3. アニメーションを増やす場合は `prefers-reduced-motion` への配慮を検討
 
+## `js/pcm-capture-worklet.js`
+
+`index.html` の Web Audio グラフからモノラル float PCM を受け、4096サンプル単位で
+メインスレッドへ転送します。一時停止と停止直前の端数 `flush` に対応します。
+Chrome公式が非推奨としている `ScriptProcessorNode` は、AudioWorkletを利用できない
+ブラウザ向けのフォールバックとしてのみ `index.html` に残しています。
+
 ---
 
 ## 追加アセットを置く場合
@@ -57,6 +67,6 @@ Bootstrap / Bootstrap Icons は CDN から読み込みます。
 |------|----------|------------------------|
 | CSS | `static/css/` | `url_for('static', filename='css/foo.css')` |
 | 画像 | `static/img/` | 同上 `img/...` |
-| JS | `static/js/` | 同上（現状未使用） |
+| JS | `static/js/` | 同上 `js/...` |
 
 大きなバイナリや生成物は git に含めないでください。
