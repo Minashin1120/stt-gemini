@@ -1,6 +1,6 @@
 # `app/static/` — 静的アセット
 
-Flask の `static` フォルダです。CSS と録音用 AudioWorklet を管理しています。
+Flask の `static` フォルダです。現状は CSS のみをリポジトリ管理しています。
 
 親ドキュメント: [../README.md](../README.md) · テンプレート: [../templates/README.md](../templates/README.md)
 
@@ -10,13 +10,11 @@ Flask の `static` フォルダです。CSS と録音用 AudioWorklet を管理�
 
 ```text
 static/
-├── css/
-│   └── style.css                  # テーマ別スタイル・アニメーション・モーダル
-└── js/
-    └── pcm-capture-worklet.js     # 音声レンダリングスレッドでPCMを安定回収
+└── css/
+    └── style.css    # テーマ別スタイル・アニメーション・モーダル
 ```
 
-JavaScript の大半は `templates/index.html` 等にインライン配置し、AudioWorklet だけは別ファイルです。
+JavaScript の大半は `templates/index.html` 等にインライン配置しています（外部 JS バンドルなし）。  
 Bootstrap / Bootstrap Icons は CDN から読み込みます。
 
 ---
@@ -59,6 +57,6 @@ Bootstrap / Bootstrap Icons は CDN から読み込みます。
 |------|----------|------------------------|
 | CSS | `static/css/` | `url_for('static', filename='css/foo.css')` |
 | 画像 | `static/img/` | 同上 `img/...` |
-| JS | `static/js/` | 同上 |
+| JS | `static/js/` | 同上（現状未使用） |
 
 大きなバイナリや生成物は git に含めないでください。

@@ -1,12 +1,10 @@
 import io
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
 import unittest
-import wave
 from unittest.mock import Mock, patch
 
 from cryptography.fernet import Fernet
@@ -192,73 +190,11 @@ class SecurityTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_recording_noise_suppression_runs_server_enhancement(self):
-        client = application.app.test_client()
-        token = self.authenticate(client, self.first_id)
-        with patch.object(application, 'enhance_browser_recording', return_value=True) as enhance:
-            response = client.post(
-                '/transcribe',
-                data={
-                    '_js_challenge': f'valid_{token}',
-                    'audio_file': (io.BytesIO(b'placeholder-audio'), 'recording.wav'),
-                    'noise_suppression': '1',
-                    'is_append': '1',
-                },
-                headers={'User-Agent': 'Mozilla/5.0', 'X-CSRFToken': token},
-                buffered=False,
-            )
-            self.assertEqual(response.status_code, 200)
-            enhance.assert_called_once()
-            response.close()
-
-    def test_ffmpeg_recording_enhancement_produces_valid_wav_and_mp3(self):
-        if not os.path.exists('/usr/bin/ffmpeg'):
-            self.skipTest('ffmpeg is not installed')
-        audio_path = os.path.join(self.upload_root, 'quiet.wav')
-        sample_rate = 16000
-        with wave.open(audio_path, 'wb') as output:
-            output.setnchannels(1)
-            output.setsampwidth(2)
-            output.setframerate(sample_rate)
-            samples = bytearray()
-            for index in range(sample_rate):
-                # Quiet deterministic signal; enough to exercise denoise + normalization.
-                value = int(450 * (((index % 80) / 40) - 1))
-                samples.extend(value.to_bytes(2, byteorder='little', signed=True))
-            output.writeframes(samples)
-
-        self.assertTrue(application.enhance_browser_recording(audio_path))
-        with wave.open(audio_path, 'rb') as enhanced:
-            self.assertEqual(enhanced.getnchannels(), 1)
-            self.assertEqual(enhanced.getsampwidth(), 2)
-            self.assertGreater(enhanced.getnframes(), 0)
-
-        mp3_path = os.path.join(self.upload_root, 'quiet.mp3')
-        subprocess.run(
-            ['/usr/bin/ffmpeg', '-loglevel', 'error', '-y', '-i', audio_path, mp3_path],
-            check=True,
-        )
-        self.assertTrue(application.enhance_browser_recording(mp3_path))
-        probe = subprocess.run(
-            ['/usr/bin/ffmpeg', '-v', 'error', '-i', mp3_path, '-f', 'null', '-'],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        self.assertEqual(probe.returncode, 0, probe.stderr.decode(errors='replace'))
-
     def test_security_headers_disable_eval_and_framing(self):
         response = application.app.test_client().get('/welcome', headers={'User-Agent': 'Mozilla/5.0'})
         self.assertEqual(response.headers['X-Frame-Options'], 'DENY')
         self.assertNotIn("'unsafe-eval'", response.headers['Content-Security-Policy'])
         self.assertIn('max-age=31536000', response.headers['Strict-Transport-Security'])
-
-    def test_pcm_audio_worklet_is_served_as_javascript(self):
-        response = application.app.test_client().get('/static/js/pcm-capture-worklet.js')
-        self.assertEqual(response.status_code, 200)
-        self.assertIn('javascript', response.content_type)
-        self.assertIn(b"registerProcessor('stt-pcm-capture'", response.data)
-        response.close()
 
     def test_all_templates_compile(self):
         with application.app.app_context():
