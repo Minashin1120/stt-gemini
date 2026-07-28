@@ -271,7 +271,7 @@
             <div class="card-header py-3 fw-bold"><i class="bi bi-stars me-2"></i>AIで文章を改善</div>
             <div class="card-body">
                 <div class="mb-2"><div class="form-check"><input class="form-check-input" type="checkbox" id="useAudioForImprove"><label class="form-check-label small" for="useAudioForImprove">音声も参照</label></div></div>
-                <div class="input-group"><input type="text" id="instructionInput" class="form-control" placeholder="例: 要約して"><button id="btnImprove" class="btn btn-info text-white">実行</button></div>
+                <div class="input-group"><input type="text" id="instructionInput" name="improvement_instruction" class="form-control" placeholder="例: 要約して" autocomplete="off"><button id="btnImprove" class="btn btn-info text-white">実行</button></div>
             </div>
         </div>
     </div>
@@ -304,7 +304,7 @@
             </div>
             <div class="api-key-modal-body">
                 <p id="akMessage">選択中のモデルを使用するにはAPIキーが必要です。</p>
-                <input type="password" id="akInput" class="form-control" placeholder="APIキーを入力してください">
+                <input type="password" id="akInput" name="api_key" class="form-control" placeholder="APIキーを入力してください" autocomplete="new-password">
                 <div class="api-key-modal-error" id="akError"></div>
             </div>
             <div class="api-key-modal-footer">
