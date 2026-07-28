@@ -27,7 +27,7 @@ Jinja2 + Bootstrap 5.3 + Vanilla JavaScript です。ビルドツールは使い
 
 ### 音声入力
 
-- **録音タブ**: `getUserMedia`、初回取得時の必須音声処理制約、AudioWorklet録音、波形・実入力レベル、MP3（lamejs）/ 真の PCM WAV エンコード
+- **録音タブ**: `getUserMedia`、モバイルの内蔵マイク `deviceId` 厳密指定、初回取得時の必須音声処理制約、AudioWorklet録音、波形・実入力レベル、MP3（lamejs）/ 真の PCM WAV エンコード
 - **アップロードタブ**: ドラッグ＆ドロップ、100MB 超はチャンク並列アップロード
 - **新規 / 追加**: 新規は履歴・保存音声をクリアしてから送信、追加は結果を追記
 
@@ -84,5 +84,6 @@ document.documentElement.setAttribute('data-theme', localStorage.getItem('app_th
 1. `index.html` は行数が多いため、録音（`rec` / `vis`）、アップロード、SSE、改善のブロックを意識して変更する
 2. 識別子の重複（過去に `stream` 名衝突で SyntaxError）に注意
 3. モバイル Chrome のマイク制約は歴史的に挙動が変わりやすい。OFFは取得後の `applyConstraints` ではなく、初回 `getUserMedia` の exact 制約で録音プリセットを決めること
-4. 実機確認では「Chrome処理: OFF確認」バッジ、入力dBFS、実ファイル、小声の文字起こしを確認すること。`getSettings()` は端末メーカーの前段DSPまでは証明しない
-5. プロンプト定数の大半は **サーバー側**。フロントで持つ固定文は間隔修正の `fixInstruction` のみ（現状）
+4. モバイルのマイクは許可後に `enumerateDevices()` で「内蔵」候補を探し、`deviceId: { exact: ... }` で再取得する。`default` は外部機器へ切り替わり得るため固定先として扱わない
+5. 実機確認では「内蔵マイク: 固定確認」「Chrome処理: OFF確認」バッジ、入力dBFS、実ファイル、小声の文字起こしを確認すること。`getSettings()` は端末メーカーの前段DSPまでは証明しない
+6. プロンプト定数の大半は **サーバー側**。フロントで持つ固定文は間隔修正の `fixInstruction` のみ（現状）

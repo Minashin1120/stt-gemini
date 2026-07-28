@@ -1011,12 +1011,74 @@ document.addEventListener('DOMContentLoaded', () => {
         try { return track.getSettings() || {}; } catch (_) { return {}; }
     }
 
-    function buildMicConstraintAttempts(noiseOn, supported) {
+    const EXTERNAL_MIC_LABEL_PATTERN = /(?:bluetooth|wireless|head[\s-]?(?:set|phone)s?|ear[\s-]?(?:bud|phone)s?|airpods?|(?:galaxy|pixel)[\s-]?buds?|hands[\s-]?free|\bsco\b|\ba2dp\b|\busb\b|wired|hearing[\s-]?aid|ブルートゥース|ワイヤレス|ヘッドセット|ヘッドホン|イヤホン|イヤフォン|有線|補聴器)/i;
+    const BUILTIN_MIC_LABEL_PATTERN = /(?:built[\s-]?in|internal|handset|speaker[\s-]?phone|phone(?:'s)?[\s-]?(?:mic|microphone)|microphone[\s-]?array|device[\s-]?(?:mic|microphone)|内蔵|本体|端末|スマートフォン|スピーカーフォン)/i;
+
+    function isMobileMicTarget() {
+        if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
+            return navigator.userAgentData.mobile;
+        }
+        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+    }
+
+    function isDefaultDeviceAlias(device) {
+        return !device || device.deviceId === 'default' || /^default(?:\s|$)/i.test(device.label || '');
+    }
+
+    function isExternalMicLabel(label) {
+        return EXTERNAL_MIC_LABEL_PATTERN.test(String(label || ''));
+    }
+
+    function findBuiltInMicDevice(devices) {
+        const candidates = (devices || [])
+            .filter(device => device.kind === 'audioinput'
+                && device.deviceId
+                && !isDefaultDeviceAlias(device)
+                && BUILTIN_MIC_LABEL_PATTERN.test(device.label || '')
+                && !isExternalMicLabel(device.label))
+            // 実デバイスIDを優先。同一マイクのdefault別名は固定先に使わない。
+            .sort((a, b) => (b.label || '').length - (a.label || '').length);
+        return candidates[0] || null;
+    }
+
+    async function enumerateAudioDevices() {
+        if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== 'function') {
+            return [];
+        }
+        try {
+            return (await navigator.mediaDevices.enumerateDevices())
+                .filter(device => device.kind === 'audioinput' || device.kind === 'audiooutput');
+        } catch (error) {
+            console.warn('[STT mic enumeration failed]', error);
+            return [];
+        }
+    }
+
+    function describeSelectedMic(stream, devices) {
+        const track = stream && stream.getAudioTracks()[0];
+        const settings = readMicSettings(track);
+        const matched = (devices || []).find(device =>
+            device.kind === 'audioinput' && settings.deviceId && device.deviceId === settings.deviceId);
+        const label = (matched && matched.label) || (track && track.label) || '';
+        return {
+            deviceId: settings.deviceId || '',
+            groupId: settings.groupId || '',
+            label,
+            external: isExternalMicLabel(label),
+            builtIn: BUILTIN_MIC_LABEL_PATTERN.test(label) && !isExternalMicLabel(label)
+        };
+    }
+
+    function buildMicConstraintAttempts(noiseOn, supported, preferredDevice) {
         const common = {
             channelCount: { ideal: 1 },
             sampleRate: { ideal: 48000 },
             sampleSize: { ideal: 16 }
         };
+        if (preferredDevice && preferredDevice.deviceId) {
+            // ideal ではOSの既定経路（Bluetooth等）へ戻され得るため、必須指定にする。
+            common.deviceId = { exact: preferredDevice.deviceId };
+        }
         const exact = {};
         const relaxed = {};
         const desired = noiseOn
@@ -1084,11 +1146,11 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    async function acquireMicStream(noiseOn) {
+    async function acquireMicStreamCandidate(noiseOn, preferredDevice) {
         const supported = (navigator.mediaDevices.getSupportedConstraints
             ? navigator.mediaDevices.getSupportedConstraints()
             : {}) || {};
-        const attempts = buildMicConstraintAttempts(noiseOn, supported);
+        const attempts = buildMicConstraintAttempts(noiseOn, supported, preferredDevice);
         const diagnostics = [];
         let lastError = null;
 
@@ -1129,6 +1191,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const micInfo = {
                     requestedNoiseOn: noiseOn,
+                    requestedDeviceId: preferredDevice ? preferredDevice.deviceId : '',
+                    requestedDeviceLabel: preferredDevice ? preferredDevice.label : '',
                     strategy: attempt.label,
                     strict: attempt.strict,
                     fullyStrict: attempt.fullyStrict,
@@ -1144,13 +1208,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     attempts: diagnostics
                 };
                 stream._sttMicSettings = micInfo;
-                window.__sttLastMicDiagnostics = {
-                    ...micInfo,
-                    sampleRate: settings.sampleRate,
-                    channelCount: settings.channelCount,
-                    supportedConstraints: supported
-                };
-                console.log('[STT mic diagnostics]', window.__sttLastMicDiagnostics);
+                stream._sttSupportedConstraints = supported;
                 return stream;
             } catch (error) {
                 lastError = error;
@@ -1165,6 +1223,114 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.warn('[STT mic acquisition failed]', diagnostics);
         throw lastError || new Error('マイクを取得できませんでした');
+    }
+
+    function publishMicDiagnostics(stream) {
+        const track = stream && stream.getAudioTracks()[0];
+        const settings = readMicSettings(track);
+        const micInfo = (stream && stream._sttMicSettings) || {};
+        window.__sttLastMicDiagnostics = {
+            ...micInfo,
+            sampleRate: settings.sampleRate,
+            channelCount: settings.channelCount,
+            deviceId: settings.deviceId,
+            groupId: settings.groupId,
+            supportedConstraints: (stream && stream._sttSupportedConstraints) || {}
+        };
+        console.log('[STT mic diagnostics]', window.__sttLastMicDiagnostics);
+    }
+
+    /**
+     * モバイルではChromeが公開した「内蔵マイク」を実デバイスIDで取り直す。
+     * 初回許可前はラベルが空なので、一度だけ処理条件を確定したストリームを取得し、
+     * ラベル公開後に停止してから内蔵マイクを exact 指定する。
+     */
+    async function acquireMicStream(noiseOn) {
+        const mobileTarget = isMobileMicTarget();
+        let devices = mobileTarget ? await enumerateAudioDevices() : [];
+        let builtInDevice = mobileTarget ? findBuiltInMicDevice(devices) : null;
+        let stream = null;
+        let routingFailure = '';
+
+        if (builtInDevice) {
+            try {
+                stream = await acquireMicStreamCandidate(noiseOn, builtInDevice);
+            } catch (error) {
+                routingFailure = String(error && (error.name || error.message) || error);
+                console.warn('[STT built-in mic exact selection failed]', error);
+            }
+        }
+
+        if (!stream) {
+            stream = await acquireMicStreamCandidate(noiseOn, null);
+        }
+
+        // 権限取得後に初めて実デバイス名が見える場合は、probeを完全停止して取り直す。
+        if (mobileTarget && !builtInDevice) {
+            devices = await enumerateAudioDevices();
+            builtInDevice = findBuiltInMicDevice(devices);
+            if (builtInDevice) {
+                stopStreamTracks(stream);
+                stream = null;
+                await new Promise(resolve => window.setTimeout(resolve, 120));
+                try {
+                    stream = await acquireMicStreamCandidate(noiseOn, builtInDevice);
+                } catch (error) {
+                    routingFailure = String(error && (error.name || error.message) || error);
+                    console.warn('[STT built-in mic reacquisition failed]', error);
+                    // 内蔵の厳密指定を端末が拒否した場合も、録音自体は可能にする。
+                    stream = await acquireMicStreamCandidate(noiseOn, null);
+                }
+            }
+        }
+
+        devices = mobileTarget ? await enumerateAudioDevices() : devices;
+        const selected = describeSelectedMic(stream, devices);
+        const micInfo = stream._sttMicSettings || {};
+        const exactRequested = !!builtInDevice && micInfo.requestedDeviceId === builtInDevice.deviceId;
+        const deviceIdReported = !!selected.deviceId;
+        const exactVerified = exactRequested && deviceIdReported
+            && selected.deviceId === builtInDevice.deviceId;
+        const exactMismatch = exactRequested && deviceIdReported && !exactVerified;
+        let routingMode = 'not-mobile';
+        let routingWarning = '';
+
+        if (mobileTarget && exactVerified) {
+            routingMode = 'built-in-exact-verified';
+        } else if (mobileTarget && exactRequested && !deviceIdReported) {
+            // getUserMediaのexact成功によりブラウザ層では固定済みだが、
+            // getSettingsがIDを省略する端末では実測照合まではできない。
+            routingMode = 'built-in-exact-requested';
+        } else if (mobileTarget && exactMismatch) {
+            routingMode = 'built-in-exact-mismatch';
+            routingWarning = 'Chromeが内蔵マイクの固定指定と異なる入力を返しました';
+        } else if (mobileTarget && routingFailure) {
+            routingMode = 'built-in-exact-failed';
+            routingWarning = selected.external
+                ? '内蔵マイクの固定に失敗し、外部マイクが選択されています。イヤフォン等を切断してください'
+                : '内蔵マイクの固定を端末が拒否したため、端末の既定入力を使用しています';
+        } else if (mobileTarget) {
+            routingMode = 'built-in-not-identifiable';
+            routingWarning = selected.external
+                ? 'イヤフォン等の外部マイクが選択されています。切断してから録音し直してください'
+                : 'Chromeが内蔵マイクを個別公開しないため、端末の既定入力を使用しています';
+        }
+
+        micInfo.routing = {
+            mobileTarget,
+            mode: routingMode,
+            exactRequested,
+            exactVerified,
+            requestedLabel: builtInDevice ? builtInDevice.label : '',
+            selectedLabel: selected.label,
+            selectedExternal: selected.external,
+            selectedBuiltIn: selected.builtIn,
+            warning: routingWarning,
+            failure: routingFailure
+        };
+        stream._sttMicSettings = micInfo;
+        publishMicDiagnostics(stream);
+        return stream;
     }
 
     function appendCapturedPcm(chunk) {
@@ -2430,6 +2596,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             lastMicSettings = mic;
             const effNs = mic.noiseSuppression;
             const mismatch = !!mic.mismatch || (!noiseOn && !mic.processingFullyOff);
+            const routing = mic.routing || {};
             const noiseLabel = noiseOn
                 ? '<span class="badge bg-primary ms-1">ノイズ除去: ON</span>'
                 : '<span class="badge bg-secondary ms-1">ノイズ除去: OFF</span>';
@@ -2453,8 +2620,18 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             const captureLabel = captureBackend === 'audio-worklet'
                 ? '<span class="badge bg-success ms-1">安定録音</span>'
                 : '<span class="badge bg-warning text-dark ms-1">互換録音</span>';
-            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${noiseLabel} ${effLabel} ${agcLabel} ${ecLabel} ${fmtLabel} ${captureLabel}`;
-            if (mismatch) {
+            let micRouteLabel = '';
+            if (routing.mode === 'built-in-exact-verified') {
+                micRouteLabel = '<span class="badge bg-success ms-1">内蔵マイク: 固定確認</span>';
+            } else if (routing.mode === 'built-in-exact-requested') {
+                micRouteLabel = '<span class="badge bg-info text-dark ms-1">内蔵マイク: 固定指定</span>';
+            } else if (routing.mobileTarget) {
+                micRouteLabel = '<span class="badge bg-warning text-dark ms-1">マイク: 端末既定</span>';
+            }
+            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${micRouteLabel} ${noiseLabel} ${effLabel} ${agcLabel} ${ecLabel} ${fmtLabel} ${captureLabel}`;
+            if (routing.warning) {
+                showToast(routing.warning, true);
+            } else if (mismatch) {
                 showToast(noiseOn
                     ? '端末がノイズ除去ONを拒否している可能性があります'
                     : 'Chromeで全処理OFFを確認できませんでした。端末側処理が残る可能性があります', true);
