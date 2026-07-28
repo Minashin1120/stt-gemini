@@ -239,6 +239,23 @@ class SecurityTests(unittest.TestCase):
             for template_name in application.app.jinja_env.list_templates():
                 application.app.jinja_env.get_template(template_name)
 
+    def test_improvement_input_is_not_treated_as_a_password_username(self):
+        template_path = os.path.join(
+            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
+        )
+        with open(template_path, encoding='utf-8') as template:
+            source = template.read()
+        self.assertIn(
+            'id="instructionInput" name="improvement_instruction" '
+            'class="form-control" placeholder="例: 要約して" autocomplete="off"',
+            source,
+        )
+        self.assertIn(
+            'id="akInput" name="api_key" class="form-control" '
+            'placeholder="APIキーを入力してください" autocomplete="new-password"',
+            source,
+        )
+
     def test_gemini_key_is_sent_in_header_not_url(self):
         response = Mock(status_code=200)
         response.iter_lines.return_value = []
