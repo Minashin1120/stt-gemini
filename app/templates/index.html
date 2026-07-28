@@ -120,6 +120,7 @@
                     <!-- 録音モード -->
                     <div class="tab-pane fade show active" id="recordMode" role="tabpanel">
                         <div class="visualizer-shell"><canvas id="audioVisualizer"></canvas></div>
+                        <div id="micLevelStatus" class="small text-center text-muted mb-2 d-none" aria-live="polite"></div>
                         <div class="d-flex justify-content-center gap-3 align-items-center mb-3 flex-wrap">
                             <div class="btn-group" role="group"><input type="radio" class="btn-check" name="format" id="fmt_mp3" value="mp3" checked><label class="btn btn-outline-secondary btn-sm" for="fmt_mp3">MP3</label><input type="radio" class="btn-check" name="format" id="fmt_wav" value="wav"><label class="btn btn-outline-secondary btn-sm" for="fmt_wav">WAV</label></div>
                             <div class="vr"></div>
@@ -826,13 +827,16 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-    let selectedFile = null, mediaRecorder, graphKeepAliveRecorder, audioContext, processor, microphone, inputGain, silentGain, analyserNode, captureSink, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [], floatChunks = [], recordFormat = 'mp3';
+    let selectedFile = null, mediaRecorder, graphKeepAliveRecorder, audioContext, processor, microphone, inputGain, noiseHighpass, noiseLowpass, silentGain, analyserNode, captureSink, audioStream, isRecording = false, isPaused = false, isAppendMode = false, initText = "", audioChunks = [], floatChunks = [], recordFormat = 'mp3', recordNoiseSuppression = true;
     let abortController = null;
     let currentTaskId = null;
     let cancellationInProgress = false;
     let visPeakEma = 0.02;
     let capturePeak = 0;
     let lastMicSettings = null;
+    let captureBackend = null;
+    let captureFlushResolve = null;
+    let lastLevelUiUpdate = 0;
 
     function floatTo16BitPCM(float32Array, gain) {
         const g = (typeof gain === 'number' && isFinite(gain)) ? gain : 1;
@@ -846,50 +850,73 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * 録音レベル補正。
-     *
-     * 注意: 「ピークを常に 0.89 に揃える」方式は使わない。
-     * ノイズ除去 ON は音量が下がりやすく、その分だけ強く増幅すると残ノイズ・処理アーティファクトが
-     * 持ち上がり、トグルが逆に効いているように聞こえる（六次修正の副作用）。
-     * 両モードにほぼ同じメイクアップゲインをかけ、相対的な SN 差を保ったまま底上げする。
+     * 録音レベル計測。最大ピークだけでなく短時間RMS分布を使い、
+     * 小声と一瞬のタップ音を区別して停止後の補正量を決める。
      */
-    function measurePeak(float32Chunks) {
+    function measureRecordingLevels(float32Chunks, sampleRate) {
         let peak = 0;
+        const frameLength = Math.max(128, Math.round((sampleRate || 48000) * 0.02));
+        const frameRms = [];
+        let frameSum = 0;
+        let frameSamples = 0;
+
         for (let c = 0; c < float32Chunks.length; c++) {
             const ch = float32Chunks[c];
             for (let i = 0; i < ch.length; i++) {
-                const a = Math.abs(ch[i]);
+                const sample = ch[i];
+                const a = Math.abs(sample);
                 if (a > peak) peak = a;
+                frameSum += sample * sample;
+                frameSamples++;
+                if (frameSamples === frameLength) {
+                    frameRms.push(Math.sqrt(frameSum / frameSamples));
+                    frameSum = 0;
+                    frameSamples = 0;
+                }
             }
         }
-        return peak;
+        if (frameSamples > 0) frameRms.push(Math.sqrt(frameSum / frameSamples));
+        frameRms.sort((a, b) => a - b);
+        const percentile = (ratio) => {
+            if (frameRms.length === 0) return 0;
+            return frameRms[Math.min(frameRms.length - 1, Math.floor(frameRms.length * ratio))];
+        };
+        return {
+            peak,
+            noiseRms: percentile(0.2),
+            speechRms: percentile(0.85),
+            frameCount: frameRms.length
+        };
     }
 
     /**
-     * @param {number} peak
-     * @param {Object} [opts] - Optional settings such as agcOff.
-     * AGC オフ（生マイク）時はブラウザ側ゲインが無いので FIXED を少し上げる。
-     * ただしピーク揃えはせず、ON/OFF の相対 SN は維持する。
+     * 最大ピークではなく20msフレームの上位RMSから小声を補正する。
+     * 端末を触った一瞬の衝撃音があっても、発話全体の増幅量を下げない。
      */
-    function computeMakeupGain(peak, opts) {
-        const FIXED = (opts && opts.agcOff) ? 5.0 : 3.5;
-        const CEIL = 0.92;
-        if (!(peak > 1e-6)) return 1;
-        let g = FIXED;
-        // 極端に小さい場合のみ追加
-        if (peak * g < 0.12) {
-            g = Math.min(12, 0.4 / peak);
-        }
-        if (peak * g > CEIL) {
-            g = CEIL / peak;
-        }
-        return g;
+    function computeMakeupGain(levels, opts) {
+        if (!levels || !(levels.speechRms > 1e-6)) return 1;
+        const noiseOn = !!(opts && opts.noiseOn);
+        const targetRms = noiseOn ? 0.11 : 0.09;
+        const maxGain = noiseOn ? 12 : ((opts && opts.agcOff) ? 10 : 8);
+        return Math.min(maxGain, Math.max(1, targetRms / levels.speechRms));
+    }
+
+    function softLimit(sample) {
+        const sign = sample < 0 ? -1 : 1;
+        const value = Math.abs(sample);
+        if (value <= 0.82) return sample;
+        return sign * (0.82 + 0.18 * (1 - Math.exp(-(value - 0.82) / 0.18)));
     }
 
     function floatChunksToInt16(float32Chunks, gain) {
         const out = [];
         for (let c = 0; c < float32Chunks.length; c++) {
-            out.push(floatTo16BitPCM(float32Chunks[c], gain));
+            const input = float32Chunks[c];
+            const limited = new Float32Array(input.length);
+            for (let i = 0; i < input.length; i++) {
+                limited[i] = softLimit(input[i] * gain);
+            }
+            out.push(floatTo16BitPCM(limited, 1));
         }
         return out;
     }
@@ -945,29 +972,32 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {Object} [opts] - Optional settings such as agcOff.
      */
     function encodeNormalizedRecording(float32Chunks, sampleRate, format, opts) {
-        const peak = measurePeak(float32Chunks);
-        const gain = computeMakeupGain(peak, opts);
+        const levels = measureRecordingLevels(float32Chunks, sampleRate);
+        const gain = computeMakeupGain(levels, opts);
         console.log('[STT level makeup]', {
-            peakBefore: peak,
+            peakBefore: levels.peak,
+            speechRms: levels.speechRms,
+            noiseRms: levels.noiseRms,
             gain,
-            peakAfterApprox: Math.min(1, peak * gain),
+            peakAfterApprox: Math.min(1, levels.peak * gain),
             agcOff: !!(opts && opts.agcOff),
+            noiseOn: !!(opts && opts.noiseOn),
             format,
             sampleRate
         });
         const int16 = floatChunksToInt16(float32Chunks, gain);
         if (format === 'wav') {
-            return { blob: encodeWavBlob(int16, sampleRate), gain, peakBefore: peak };
+            return { blob: encodeWavBlob(int16, sampleRate), gain, peakBefore: levels.peak, levels };
         }
-        return { blob: encodeMp3Blob(int16, sampleRate), gain, peakBefore: peak };
+        return { blob: encodeMp3Blob(int16, sampleRate), gain, peakBefore: levels.peak, levels };
     }
 
     /**
      * マイク取得（ノイズ除去 ON/OFF）
      *
      * 根拠（Chrome / WebRTC）:
-     * - Chromium: echoCancellation:false がソフトウェア APM のマスターオフ（discuss-webrtc）。
-     * - { audio: true } は NS/AGC/EC がデフォルト ON。OFF 時は三者とも明示 false。
+     * - Chromium現行実装はEC/NS/AGCを個別に構成するため、OFF時は三者とも明示 false。
+     * - ON時はNSを必須指定し、録音専用では不要なECを切って小声とハードNSを保護する。
      * - Chrome はステレオ入力で AEC を切ることがある → OFF 時は channelCount:2 も試行。
      * - 録音中に audioContext.destination（スピーカー）へ極小でも接続すると、モバイルで
      *   フルデュプレックス経路（プラットフォーム AEC/NS）が起動し、constraints と無関係に
@@ -1008,12 +1038,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const ec = settings.echoCancellation;
         let score = 0;
         if (noiseOn) {
-            // ON: ソフトウェア NS が効いていること最優先
+            // ON: NSを最優先。録音専用なので小声を削り得るECは使わない
             if (ns === true) score += 30;
             else if (ns === false) score -= 30;
             if (agc === true) score += 5;
             else if (agc === false) score -= 2;
-            // 録音専用: EC は付けない
             if (ec === false) score += 8;
             else if (ec === true) score -= 15;
         } else {
@@ -1029,7 +1058,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function buildNoiseOffConstraintSets() {
-        // Chromium/Android では echoCancellation の exact:false が APM 全体を止める鍵。
+        // Chromium/Android で不要なECを確実に止めるため exact:false を最優先する。
         // NS/AGC/voiceIsolation まで同じ exact セットにすると、どれか一つが変更不能な端末で
         // セット全体が reject されるため、EC を単独の必須条件として最初に試す。
         return [
@@ -1082,24 +1111,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function buildNoiseOnConstraintSets() {
-        // NS+AGC ON。EC は録音専用のため OFF（無スピーカーで発話ゲートしやすい）
+        // Chromium現行実装ではNS単独でもWebRTC音声処理が起動する。
+        // NSだけを必須にし、AGCで小声を補助。不要なECはハードNSへ干渉し得るためOFF。
         return [
             {
                 echoCancellation: false,
-                noiseSuppression: true,
+                noiseSuppression: { exact: true },
                 autoGainControl: true,
                 voiceIsolation: false,
                 googEchoCancellation: false,
                 googNoiseSuppression: true,
                 googAutoGainControl: true,
-                googHighpassFilter: false,
+                googHighpassFilter: true,
                 channelCount: { ideal: 1 },
                 sampleRate: { ideal: 48000 }
             },
             {
-                echoCancellation: { exact: false },
-                noiseSuppression: { exact: true },
-                autoGainControl: { exact: true }
+                echoCancellation: false,
+                noiseSuppression: true,
+                autoGainControl: true,
+                channelCount: { ideal: 1 }
             },
             {
                 echoCancellation: false,
@@ -1264,6 +1295,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const finalTrack = best.stream.getAudioTracks()[0];
         const finalConstraintAttempts = await forceTrackProcessing(finalTrack, noiseOn);
         best.settings = readMicSettings(finalTrack);
+        let capabilities = {};
+        if (finalTrack && typeof finalTrack.getCapabilities === 'function') {
+            try { capabilities = finalTrack.getCapabilities() || {}; } catch (_) {}
+        }
 
         const s = best.settings || {};
         const offFailed = !noiseOn && (
@@ -1287,6 +1322,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 autoGainControl: !!supported.autoGainControl,
                 voiceIsolation: !!supported.voiceIsolation
             },
+            capabilities: {
+                echoCancellation: capabilities.echoCancellation,
+                noiseSuppression: capabilities.noiseSuppression,
+                autoGainControl: capabilities.autoGainControl,
+                channelCount: capabilities.channelCount
+            },
             finalConstraintAttempts,
             attempts
         });
@@ -1309,6 +1350,77 @@ document.addEventListener('DOMContentLoaded', () => {
         return best.stream;
     }
 
+    function appendCapturedPcm(chunk) {
+        if (!chunk || chunk.length === 0) return;
+        floatChunks.push(chunk);
+        for (let i = 0; i < chunk.length; i++) {
+            const value = Math.abs(chunk[i]);
+            if (value > capturePeak) capturePeak = value;
+        }
+    }
+
+    async function createPcmCaptureNode(context, inputChannels) {
+        if (context.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
+            try {
+                await context.audioWorklet.addModule('/static/js/pcm-capture-worklet.js?v=1');
+                const node = new AudioWorkletNode(context, 'stt-pcm-capture', {
+                    numberOfInputs: 1,
+                    numberOfOutputs: 1,
+                    outputChannelCount: [1],
+                    channelCount: 1,
+                    channelCountMode: 'explicit'
+                });
+                node.port.onmessage = (event) => {
+                    const message = event.data || {};
+                    if (message.type === 'pcm' && message.buffer) {
+                        appendCapturedPcm(new Float32Array(message.buffer));
+                    } else if (message.type === 'flushed' && captureFlushResolve) {
+                        const resolve = captureFlushResolve;
+                        captureFlushResolve = null;
+                        resolve();
+                    }
+                };
+                captureBackend = 'audio-worklet';
+                return node;
+            } catch (error) {
+                console.warn('[STT AudioWorklet fallback]', error);
+            }
+        }
+
+        const node = context.createScriptProcessor(4096, inputChannels, 1);
+        node.onaudioprocess = (event) => {
+            if (isPaused) return;
+            const input = event.inputBuffer.getChannelData(0);
+            const copy = new Float32Array(input.length);
+            copy.set(input);
+            appendCapturedPcm(copy);
+        };
+        captureBackend = 'script-processor-fallback';
+        return node;
+    }
+
+    function setCapturePaused(paused) {
+        if (captureBackend === 'audio-worklet' && processor && processor.port) {
+            processor.port.postMessage({ type: 'pause', value: !!paused });
+        }
+    }
+
+    async function flushCaptureNode() {
+        if (captureBackend !== 'audio-worklet' || !processor || !processor.port) return;
+        await new Promise((resolve) => {
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                captureFlushResolve = null;
+                resolve();
+            };
+            captureFlushResolve = finish;
+            processor.port.postMessage({ type: 'flush' });
+            window.setTimeout(finish, 750);
+        });
+    }
+
     function teardownCaptureGraph() {
         if (graphKeepAliveRecorder) {
             try {
@@ -1319,16 +1431,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         try { if (microphone) microphone.disconnect(); } catch (_) {}
         try { if (inputGain) inputGain.disconnect(); } catch (_) {}
+        try { if (noiseHighpass) noiseHighpass.disconnect(); } catch (_) {}
+        try { if (noiseLowpass) noiseLowpass.disconnect(); } catch (_) {}
+        try {
+            if (processor && processor.port) {
+                processor.port.onmessage = null;
+                processor.port.close();
+            } else if (processor) {
+                processor.onaudioprocess = null;
+            }
+        } catch (_) {}
         try { if (processor) processor.disconnect(); } catch (_) {}
         try { if (analyserNode) analyserNode.disconnect(); } catch (_) {}
         try { if (silentGain) silentGain.disconnect(); } catch (_) {}
         try { if (captureSink) captureSink.disconnect(); } catch (_) {}
         microphone = null;
         inputGain = null;
+        noiseHighpass = null;
+        noiseLowpass = null;
         processor = null;
         analyserNode = null;
         silentGain = null;
         captureSink = null;
+        captureBackend = null;
+        captureFlushResolve = null;
     }
 
     async function ensureAudioContextRunning() {
@@ -1350,6 +1476,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function startVisualizer() {
         if (!analyserNode || !canvas) return;
         canvas.style.display = 'block';
+        if (micLevelStatus) {
+            micLevelStatus.classList.remove('d-none');
+            micLevelStatus.textContent = '入力レベルを確認中…';
+        }
         canvas.width = canvas.clientWidth || 300;
         canvas.height = canvas.clientHeight || 80;
         // Byte波形は約1/128刻みのため、AGCを切った生マイクの小さい信号が丸め落とされる。
@@ -1375,6 +1505,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const peakN = peak;
             const rms = Math.sqrt(sumSq / data.length);
             visPeakEma = visPeakEma * 0.85 + Math.max(peakN, rms * 1.5) * 0.15;
+
+            if (micLevelStatus && performance.now() - lastLevelUiUpdate > 250) {
+                lastLevelUiUpdate = performance.now();
+                if (rms < 0.0015) {
+                    micLevelStatus.textContent = '入力レベル: ほぼ無音';
+                    micLevelStatus.className = 'small text-center text-danger mb-2';
+                } else if (rms < 0.018) {
+                    micLevelStatus.textContent = '入力レベル: 小さめ（停止後に自動補正します）';
+                    micLevelStatus.className = 'small text-center text-warning mb-2';
+                } else if (peak > 0.92) {
+                    micLevelStatus.textContent = '入力レベル: 大きすぎます（端末を少し離してください）';
+                    micLevelStatus.className = 'small text-center text-danger mb-2';
+                } else {
+                    micLevelStatus.textContent = '入力レベル: 適正';
+                    micLevelStatus.className = 'small text-center text-success mb-2';
+                }
+            }
 
             // 実レベルに近い感度（最大12倍）。以前の100倍は無音ノイズ床を「常時ノイズ」に見せていた
             let sensitivity = 8;
@@ -1413,6 +1560,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // UI Elements
     const canvas = document.getElementById("audioVisualizer"), ctx = canvas.getContext("2d");
+    const micLevelStatus = document.getElementById('micLevelStatus');
     const dropArea = document.getElementById('dropArea');
     const fileInput = document.getElementById('audioFileInput');
     const fileInfo = document.getElementById('fileSelectionInfo');
@@ -2404,6 +2552,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
 
             // チェックON = ノイズ除去する / OFF = EC/NS/AGC/voice isolation をすべて切る
             const noiseOn = !!(el.noise && el.noise.checked);
+            recordNoiseSuppression = noiseOn;
             audioStream = await acquireMicStream(noiseOn);
 
             // getUserMedia が長引くと suspended になりうる → 再確保
@@ -2412,9 +2561,10 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
 
             isRecording = true;
             isPaused = false;
+            if (el.noise) el.noise.disabled = true;
             recordFormat = document.querySelector('input[name="format"]:checked').value;
 
-            // mic → inputGain → Analyser → ScriptProcessor → MediaStreamDestination の直列グラフ
+            // mic → 音声帯域補助 → Analyser → AudioWorklet → MediaStreamDestination
             // 重要: audioContext.destination（実スピーカー）へは絶対に繋がない。
             // モバイル Chrome/Android は録音中の再生があるとフルデュプレックス経路になり、
             // プラットフォーム側の AEC/NS が constraints と無関係に効く（gain 0.0001 でも起きうる）。
@@ -2429,7 +2579,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             const inCh = Math.min(2, Math.max(1, (audioStream.getAudioTracks()[0]
                 && audioStream.getAudioTracks()[0].getSettings
                 && audioStream.getAudioTracks()[0].getSettings().channelCount) || 1));
-            processor = audioContext.createScriptProcessor(4096, inCh, 1);
+            processor = await createPcmCaptureNode(audioContext, inCh);
             captureSink = audioContext.createMediaStreamDestination();
             // silentGain は後方互換の切断用に null のまま（destination へは接続しない）
             silentGain = null;
@@ -2437,23 +2587,24 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             floatChunks = [];
             capturePeak = 0;
 
-            processor.onaudioprocess = e => {
-                if (isPaused) return;
-                const ch = e.inputBuffer.getChannelData(0);
-                // コピー必須（バッファは再利用される）
-                const copy = new Float32Array(ch.length);
-                copy.set(ch);
-                floatChunks.push(copy);
-                for (let i = 0; i < ch.length; i++) {
-                    const a = Math.abs(ch[i]);
-                    if (a > capturePeak) capturePeak = a;
-                }
-            };
-
             microphone.connect(inputGain);
-            // Analyserを録音経路上に置く。出力未接続の並列枝はモバイルChromeで
-            // レンダリング対象から外され、波形が更新されないことがある。
-            inputGain.connect(analyserNode);
+            // Chrome/端末NSに加え、ON時だけ音声認識に不要な低域・高域を保守的に除く。
+            // ブロードバンドノイズは停止後にサーバー側afftdnでも処理する。
+            if (noiseOn) {
+                noiseHighpass = audioContext.createBiquadFilter();
+                noiseHighpass.type = 'highpass';
+                noiseHighpass.frequency.value = 70;
+                noiseHighpass.Q.value = 0.707;
+                noiseLowpass = audioContext.createBiquadFilter();
+                noiseLowpass.type = 'lowpass';
+                noiseLowpass.frequency.value = Math.min(10000, audioContext.sampleRate * 0.45);
+                noiseLowpass.Q.value = 0.707;
+                inputGain.connect(noiseHighpass);
+                noiseHighpass.connect(noiseLowpass);
+                noiseLowpass.connect(analyserNode);
+            } else {
+                inputGain.connect(analyserNode);
+            }
             analyserNode.connect(processor);
             // スピーカー出力ゼロ: MediaStreamDestination のみへ接続する。
             processor.connect(captureSink);
@@ -2497,10 +2648,16 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             const fmtLabel = recordFormat === 'wav'
                 ? '<span class="badge bg-info text-dark ms-1">WAV(PCM)</span>'
                 : '<span class="badge bg-info text-dark ms-1">MP3 192k</span>';
-            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${noiseLabel} ${effLabel} ${agcLabel} ${ecLabel} ${fmtLabel}`;
+            const captureLabel = captureBackend === 'audio-worklet'
+                ? '<span class="badge bg-success ms-1">AudioWorklet</span>'
+                : '<span class="badge bg-warning text-dark ms-1">互換録音</span>';
+            const postFilterLabel = noiseOn
+                ? '<span class="badge bg-success ms-1">録音後ノイズ低減</span>'
+                : '';
+            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${noiseLabel} ${effLabel} ${agcLabel} ${ecLabel} ${fmtLabel} ${captureLabel} ${postFilterLabel}`;
             if (mismatch || mic.offLikelyFailed) {
                 showToast(noiseOn
-                    ? '端末がノイズ除去ONを拒否している可能性があります'
+                    ? 'ブラウザ側NSを確認できません。録音後の補助ノイズ低減を使用します'
                     : 'ブラウザ報告上は処理が残っています（実効NS/AGC/EC）。Android Chrome はプラットフォーム側処理が残る場合があります', true);
             } else if (!noiseOn && mic.processingFullyOff) {
                 showToast('録音開始（ノイズ除去OFF・スピーカー出力なし）');
@@ -2509,6 +2666,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             }
         } catch(e){
             isRecording=false;
+            if (el.noise) el.noise.disabled = false;
             teardownCaptureGraph();
             if (audioStream) { audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
             el.stat.innerText="エラー";
@@ -2519,13 +2677,14 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
     el.recNew.onclick=()=>rec(false); el.recAdd.onclick=()=>rec(true);
     el.pause.onclick=()=>{
         isPaused=!isPaused;
+        setCapturePaused(isPaused);
         if(isPaused){
             if(mediaRecorder) mediaRecorder.pause();
             el.stat.innerText="一時停止";
             el.pause.innerHTML='<i class="bi bi-play-fill"></i>';
         } else {
             if(mediaRecorder) mediaRecorder.resume();
-            const noiseOn = !!(el.noise && el.noise.checked);
+            const noiseOn = recordNoiseSuppression;
             const noiseLabel = noiseOn
                 ? '<span class="badge bg-primary ms-1">ノイズ除去: ON</span>'
                 : '<span class="badge bg-secondary ms-1">ノイズ除去: OFF</span>';
@@ -2535,23 +2694,31 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
     };
     el.cancel.onclick=()=>{
         isRecording=false; isPaused=false;
+        if (el.noise) el.noise.disabled = false;
         if(mediaRecorder){ mediaRecorder.onstop = null; try { mediaRecorder.stop(); } catch(_){} mediaRecorder=null; }
         teardownCaptureGraph();
         if(audioStream){ audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
         if(audioContext){ try { audioContext.close(); } catch(_){} audioContext=null; }
         audioChunks=[]; floatChunks=[]; capturePeak=0;
+        if (micLevelStatus) micLevelStatus.classList.add('d-none');
         el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
         el.pause.innerHTML='<i class="bi bi-pause-fill"></i>';
         el.stat.innerText="キャンセル"; showToast("キャンセルしました");
     };
-    el.stop.onclick=()=>{
-        isRecording=false; el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
+    el.stop.onclick=async()=>{
+        isRecording=false;
+        setCapturePaused(true);
+        await flushCaptureNode();
+        if (el.noise) el.noise.disabled = false;
+        el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
         el.pause.innerHTML='<i class="bi bi-pause-fill"></i>';
         el.stat.innerText="解析中...";
         const sampleRate = audioContext ? audioContext.sampleRate : 48000;
         const chunks = floatChunks;
         const fmt = recordFormat;
+        const noiseOn = recordNoiseSuppression;
         teardownCaptureGraph();
+        if (micLevelStatus) micLevelStatus.classList.add('d-none');
 
         if (audioStream) { audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
         if (audioContext) { try { audioContext.close(); } catch(_){} audioContext=null; }
@@ -2560,7 +2727,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             try {
                 const agcOff = !!(lastMicSettings && lastMicSettings.autoGainControl === false);
                 const { blob, gain, peakBefore } = encodeNormalizedRecording(
-                    chunks, sampleRate, fmt === 'wav' ? 'wav' : 'mp3', { agcOff }
+                    chunks, sampleRate, fmt === 'wav' ? 'wav' : 'mp3', { agcOff, noiseOn }
                 );
                 floatChunks = [];
                 capturePeak = 0;
@@ -2593,7 +2760,7 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         if (!isAppendMode) clearResultUiForNew();
         el.stat.innerText = "アップロード中...";
         abortController = new AbortController();
-        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', useModel); fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0'); fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0'); fd.append('is_append', isAppendMode ? '1' : '0');
+        const fd=new FormData(); fd.append('audio_file',b,n); fd.append('thinking_level',el.think.value); fd.append('model', useModel); fd.append('allow_rephrase_correction', el.rephrase && el.rephrase.checked ? '1' : '0'); fd.append('allow_filler_removal', el.filler && el.filler.checked ? '1' : '0'); fd.append('noise_suppression', recordNoiseSuppression ? '1' : '0'); fd.append('is_append', isAppendMode ? '1' : '0');
         try{
             const r=await csrfFetch('/transcribe',{
                 method:'POST',

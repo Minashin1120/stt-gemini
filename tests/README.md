@@ -30,7 +30,7 @@ python -m unittest tests.test_security -v
 
 | ファイル | 内容 |
 |----------|------|
-| `test_security.py` | アップロード検証、パス traversal 防止、セッション/認証まわり、Redis をモックしたタスク周りなど |
+| `test_security.py` | アップロード検証、パス traversal 防止、録音後処理、セッション/認証まわり、Redis をモックしたタスク周りなど |
 
 ### テスト環境の仕掛け
 
@@ -50,6 +50,7 @@ python -m unittest tests.test_security -v
 - 不正な拡張子・巨大ペイロード・他ユーザーファイルへのアクセス拒否
 - ログイン必須エンドポイント
 - タスク同時実行制限やキャンセルの基本挙動（モック前提）
+- FFmpeg によるブラウザ録音後処理とノイズ除去フラグの経路
 
 あえて薄い／未カバーになりやすい箇所:
 

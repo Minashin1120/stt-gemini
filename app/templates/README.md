@@ -27,7 +27,9 @@ Jinja2 + Bootstrap 5.3 + Vanilla JavaScript です。ビルドツールは使い
 
 ### 音声入力
 
-- **録音タブ**: `getUserMedia`、ノイズ除去トグル、波形ビジュアライザ、MP3（lamejs）/ 真の PCM WAV エンコード
+- **録音タブ**: `getUserMedia`、Chrome NS/AGC（EC は OFF）、入力レベル表示、MP3（lamejs）/ 真の PCM WAV エンコード
+- PCM 回収は `AudioWorklet` を優先し、非対応ブラウザだけ `ScriptProcessorNode` へフォールバック
+- ノイズ除去 ON は音声帯域フィルターを通し、送信後にサーバー側 FFmpeg でも補助処理
 - **アップロードタブ**: ドラッグ＆ドロップ、100MB 超はチャンク並列アップロード
 - **新規 / 追加**: 新規は履歴・保存音声をクリアしてから送信、追加は結果を追記
 

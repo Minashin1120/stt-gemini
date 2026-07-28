@@ -70,6 +70,7 @@ Google Gemini（3.5 Flash / 3.0 Flash Preview / 3.1 Flash-Lite）の思考プロ
 - Python 3.11+
 - MariaDB（または互換 DB）
 - Redis（タスク管理・レート制限）
+- FFmpeg（ブラウザ録音のノイズ低減・小声レベル補正）
 
 ### 手順
 
