@@ -404,62 +404,6 @@ def get_audio_metadata(filename, mimetype=None):
     ext = ext.lower()
     return (ext, ALLOWED_AUDIO_EXTENSIONS[ext]) if ext in ALLOWED_AUDIO_EXTENSIONS else (None, None)
 
-def enhance_browser_recording(filepath):
-    """Apply conservative speech denoising and level normalization in-place."""
-    _, ext = os.path.splitext(filepath)
-    ext = ext.lower()
-    if ext not in {'.mp3', '.wav'}:
-        return False
-
-    output_path = f"{filepath}.enhanced{ext}"
-    audio_filter = (
-        'highpass=f=70,'
-        'lowpass=f=10000,'
-        'afftdn=nr=8:nf=-50:tn=1:gs=3,'
-        'dynaudnorm=f=250:g=15:p=0.92:m=10:r=0.10:c=1'
-    )
-    codec_args = (
-        ['-c:a', 'libmp3lame', '-b:a', '192k']
-        if ext == '.mp3'
-        else ['-c:a', 'pcm_s16le']
-    )
-    command = [
-        '/usr/bin/ffmpeg',
-        '-nostdin',
-        '-hide_banner',
-        '-loglevel', 'error',
-        '-y',
-        '-i', filepath,
-        '-vn',
-        '-af', audio_filter,
-        *codec_args,
-        output_path,
-    ]
-
-    try:
-        completed = subprocess.run(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=180,
-        )
-        if completed.returncode != 0 or not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            detail = completed.stderr.decode('utf-8', errors='replace')[-500:]
-            logger.warning("Browser recording enhancement failed: %s", detail)
-            return False
-        os.replace(output_path, filepath)
-        return True
-    except (OSError, subprocess.SubprocessError) as error:
-        logger.warning("Browser recording enhancement unavailable: %s", error)
-        return False
-    finally:
-        try:
-            if os.path.exists(output_path):
-                os.remove(output_path)
-        except OSError:
-            pass
-
 def get_thinking_level(value):
     level = str(value or 'LOW').upper()
     return level if level in ALLOWED_THINKING_LEVELS else 'LOW'
@@ -1225,8 +1169,6 @@ def transcribe():
         
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
-    if is_truthy(request.form.get('noise_suppression')):
-        enhance_browser_recording(filepath)
     session['last_audio_file'] = filename
     session['last_audio_mime'] = mime_type
 
