@@ -20,6 +20,9 @@
         <div class="alert alert-{% if has_xai_key %}success{% else %}warning{% endif %} py-2">
             xAI (Grok) ステータス: {% if has_xai_key %}APIキー設定済み (暗号化されています){% else %}未設定{% endif %}
         </div>
+        <div class="alert alert-{% if has_openai_key %}success{% else %}warning{% endif %} py-2">
+            OpenAI ステータス: {% if has_openai_key %}APIキー設定済み (暗号化されています){% else %}未設定{% endif %}
+        </div>
         <form method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
@@ -34,6 +37,13 @@
                     <input type="password" name="xai_api_key" id="xaiApiKeyInput" class="form-control" placeholder="{% if has_xai_key %}変更する場合のみ入力{% else %}xai-...{% endif %}" autocomplete="new-password" maxlength="512">
                 </div>
                 <div class="form-text">Grok STTモデルを使用する場合に必要です。xAIコンソールから取得してください。</div>
+            </div>
+            <div class="mb-3">
+                <label>OpenAI API キー (GPT-Transcribe / GPT-Live)</label>
+                <div class="input-group">
+                    <input type="password" name="openai_api_key" id="openaiApiKeyInput" class="form-control" placeholder="{% if has_openai_key %}変更する場合のみ入力{% else %}sk-...{% endif %}" autocomplete="new-password" maxlength="512">
+                </div>
+                <div class="form-text">GPT-Transcribe / GPT-Live Transcribeモデルを使用する場合に必要です。OpenAIコンソールから取得してください。</div>
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold">履歴・データの保持時間 (分)</label>

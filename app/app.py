@@ -43,6 +43,7 @@ app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=1)
 
 MAX_GEMINI_AUDIO_BYTES = 100 * 1024 * 1024
 MAX_XAI_AUDIO_BYTES = 500 * 1024 * 1024
+MAX_OPENAI_AUDIO_BYTES = 25 * 1024 * 1024  # 25MB
 MAX_CHUNK_BYTES = 6 * 1024 * 1024
 MAX_CHUNKS = 100
 MAX_INCOMPLETE_UPLOADS = 3
@@ -75,6 +76,10 @@ with app.app_context():
             db.session.execute(db.text('ALTER TABLE user ADD COLUMN encrypted_xai_api_key TEXT NULL'))
             db.session.commit()
             logger.info("Database migration: Added encrypted_xai_api_key column to user table")
+        if 'encrypted_openai_api_key' not in columns:
+            db.session.execute(db.text('ALTER TABLE user ADD COLUMN encrypted_openai_api_key TEXT NULL'))
+            db.session.commit()
+            logger.info("Database migration: Added encrypted_openai_api_key column to user table")
     except Exception as e:
         # Gunicorn multi-worker 環境では競合が発生し得るが無害
         if 'Duplicate column' not in str(e):
@@ -91,6 +96,8 @@ ALLOWED_MODELS = {
     'gemini-3-flash-preview',
     'gemini-3.1-flash-lite',
     'grok-stt',
+    'gpt-transcribe',
+    'gpt-live-transcribe',
 }
 
 def validate_model(model_name):
@@ -288,6 +295,7 @@ class User(UserMixin, db.Model):
     password = db.Column(db.String(255), nullable=False)
     encrypted_api_key = db.Column(db.Text, nullable=True)
     encrypted_xai_api_key = db.Column(db.Text, nullable=True)
+    encrypted_openai_api_key = db.Column(db.Text, nullable=True)
     retention_minutes = db.Column(db.Integer, default=10, nullable=False)
     is_locked = db.Column(db.Boolean, default=False)
     unlock_requested = db.Column(db.Boolean, default=False)
@@ -313,6 +321,18 @@ class User(UserMixin, db.Model):
     def get_xai_api_key(self):
         if self.encrypted_xai_api_key:
             try: return fernet.decrypt(self.encrypted_xai_api_key.encode()).decode()
+            except: return None
+        return None
+
+    def set_openai_api_key(self, api_key):
+        if api_key:
+            self.encrypted_openai_api_key = fernet.encrypt(api_key.encode()).decode()
+        else:
+            self.encrypted_openai_api_key = None
+
+    def get_openai_api_key(self):
+        if self.encrypted_openai_api_key:
+            try: return fernet.decrypt(self.encrypted_openai_api_key.encode()).decode()
             except: return None
         return None
 
@@ -757,6 +777,7 @@ def settings():
 
         api_key = request.form.get('api_key')
         xai_api_key = request.form.get('xai_api_key')
+        openai_api_key = request.form.get('openai_api_key')
         retention_minutes = request.form.get('retention_minutes')
         
         if api_key and len(api_key) <= MAX_API_KEY_LENGTH:
@@ -770,6 +791,12 @@ def settings():
             flash('xAI APIキーを保存しました。')
         elif xai_api_key:
             flash('xAI APIキーが長すぎます。')
+        
+        if openai_api_key and len(openai_api_key) <= MAX_API_KEY_LENGTH:
+            current_user.set_openai_api_key(openai_api_key)
+            flash('OpenAI APIキーを保存しました。')
+        elif openai_api_key:
+            flash('OpenAI APIキーが長すぎます。')
         
         if retention_minutes is not None:
             try:
@@ -787,6 +814,7 @@ def settings():
         'settings.html',
         has_key=current_user.encrypted_api_key is not None,
         has_xai_key=current_user.encrypted_xai_api_key is not None,
+        has_openai_key=current_user.encrypted_openai_api_key is not None,
     )
 
 @app.route('/api/check_api_keys', methods=['GET'])
@@ -794,7 +822,8 @@ def settings():
 def check_api_keys():
     return jsonify({
         'has_gemini_key': current_user.encrypted_api_key is not None,
-        'has_xai_key': current_user.encrypted_xai_api_key is not None
+        'has_xai_key': current_user.encrypted_xai_api_key is not None,
+        'has_openai_key': current_user.encrypted_openai_api_key is not None,
     })
 
 @app.route('/api/check_api_key', methods=['POST'])
@@ -802,7 +831,9 @@ def check_api_keys():
 def check_api_key():
     data = request.get_json(silent=True) or {}
     model = data.get('model', '')
-    if model == 'grok-stt':
+    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+        has_key = current_user.encrypted_openai_api_key is not None
+    elif model == 'grok-stt':
         has_key = current_user.encrypted_xai_api_key is not None
     else:
         has_key = current_user.encrypted_api_key is not None
@@ -824,6 +855,9 @@ def save_api_key():
     elif key_type == 'gemini':
         current_user.set_api_key(api_key)
         flash('Gemini APIキーを保存しました。')
+    elif key_type == 'openai':
+        current_user.set_openai_api_key(api_key)
+        flash('OpenAI APIキーを保存しました。')
     else:
         return jsonify({'error': 'APIキー種別が不正です'}), 400
     db.session.commit()
@@ -1172,6 +1206,22 @@ def transcribe():
     session['last_audio_file'] = filename
     session['last_audio_mime'] = mime_type
 
+    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+        api_key = current_user.get_openai_api_key()
+        if not api_key: return jsonify({'error': 'OpenAI API Key not set. Go to Settings to configure it.'}), 400
+        
+        task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
+        if model == 'gpt-transcribe':
+            target = process_openai_gpt_transcribe_background
+            args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
+        else:
+            target = process_openai_gpt_live_transcribe_background
+            args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
+        thread = threading.Thread(target=target, args=args)
+        thread.daemon = True
+        thread.start()
+        return create_stream_response(stream_task_updates(task_id), task_id)
+    
     if model == 'grok-stt':
         api_key = current_user.get_xai_api_key()
         if not api_key: return jsonify({'error': 'xAI API Key not set. Go to Settings to configure it.'}), 400
@@ -1239,6 +1289,22 @@ def reanalyze():
     filepath = resolve_user_upload_path(filename, current_user.id)
     if not filepath or not os.path.exists(filepath): return jsonify({'error': '期限切れ'}), 400
 
+    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+        api_key = current_user.get_openai_api_key()
+        if not api_key: return jsonify({'error': 'OpenAI API Key not set'}), 400
+        
+        task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
+        if model == 'gpt-transcribe':
+            target = process_openai_gpt_transcribe_background
+            args = (task_id, api_key, filepath, current_user.id, "reanalyze", "Re-analysis Request")
+        else:
+            target = process_openai_gpt_live_transcribe_background
+            args = (task_id, api_key, filepath, current_user.id, "reanalyze", "Re-analysis Request")
+        thread = threading.Thread(target=target, args=args)
+        thread.daemon = True
+        thread.start()
+        return create_stream_response(stream_task_updates(task_id), task_id)
+    
     if model == 'grok-stt':
         api_key = current_user.get_xai_api_key()
         if not api_key: return jsonify({'error': 'xAI API Key not set'}), 400
@@ -1352,8 +1418,8 @@ def improve():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
-    if model == 'grok-stt':
-        model = 'gemini-3.5-flash'  # Grok STT cannot do text improvement
+    if model in ('grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'):
+        model = 'gemini-3.5-flash'  # Grok/OpenAI STT cannot do text improvement
     task_id = create_task(current_user.id, "improve", instruction, model)
     thread = threading.Thread(
         target=process_gemini_background,
@@ -1386,8 +1452,8 @@ def correct_rephrase():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
-    if model == 'grok-stt':
-        model = 'gemini-3.5-flash'  # Grok STT cannot do text correction
+    if model in ('grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'):
+        model = 'gemini-3.5-flash'  # Grok/OpenAI STT cannot do text correction
     summary = "Rephrase correction (text only)"
     task_id = create_task(current_user.id, "correct_rephrase", summary, model)
     thread = threading.Thread(
@@ -1615,7 +1681,12 @@ def upload_complete():
             return jsonify({'error': 'アップロードは結合処理中です'}), 409
 
     ext, mime_type = get_audio_metadata(original_filename)
-    max_audio_bytes = MAX_XAI_AUDIO_BYTES if model == 'grok-stt' else MAX_GEMINI_AUDIO_BYTES
+    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+        max_audio_bytes = MAX_OPENAI_AUDIO_BYTES
+    elif model == 'grok-stt':
+        max_audio_bytes = MAX_XAI_AUDIO_BYTES
+    else:
+        max_audio_bytes = MAX_GEMINI_AUDIO_BYTES
     total_size = 0
     for i in range(total_chunks):
         chunk_path = os.path.join(chunks_dir, f'chunk_{i:06d}')
@@ -1667,6 +1738,23 @@ def upload_complete():
 
     session['last_audio_file'] = filename
     session['last_audio_mime'] = mime_type
+
+    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+        api_key = current_user.get_openai_api_key()
+        if not api_key:
+            return jsonify({'error': 'OpenAI API Key not set. Go to Settings to configure it.'}), 400
+
+        task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
+        if model == 'gpt-transcribe':
+            target = process_openai_gpt_transcribe_background
+            args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
+        else:
+            target = process_openai_gpt_live_transcribe_background
+            args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
+        thread = threading.Thread(target=target, args=args)
+        thread.daemon = True
+        thread.start()
+        return create_stream_response(stream_task_updates(task_id), task_id)
 
     if model == 'grok-stt':
         api_key = current_user.get_xai_api_key()
@@ -1817,6 +1905,273 @@ def get_history():
             'expired': is_expired
         })
     return jsonify(data)
+
+# --- OpenAI Background Processors ---
+def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary, prompt="", keywords=None, languages=None, stream=True):
+    try:
+        if task_is_cancelled(task_id):
+            return
+        url = "https://api.openai.com/v1/audio/transcriptions"
+
+        with open(audio_filepath, 'rb') as f:
+            _, ext = os.path.splitext(audio_filepath)
+            filename = os.path.basename(audio_filepath)
+
+            files = {'file': (filename, f, 'application/octet-stream')}
+            data = {'model': 'gpt-transcribe'}
+            if stream:
+                data['stream'] = 'true'
+            if prompt:
+                data['prompt'] = prompt
+            if keywords:
+                for kw in keywords:
+                    data.setdefault('keywords[]', []).append(kw)
+            if languages:
+                for lang in languages:
+                    data.setdefault('languages[]', []).append(lang)
+
+            # requests doesn't handle multiple values for same key well with data dict for [] style,
+            # so we format the data tuple-style
+            files_list = []
+            data_list = []
+            data_list.append(('model', 'gpt-transcribe'))
+            if stream:
+                data_list.append(('stream', 'true'))
+            if prompt:
+                data_list.append(('prompt', prompt))
+            if keywords:
+                for kw in keywords:
+                    data_list.append(('keywords[]', kw))
+            if languages:
+                for lang in languages:
+                    data_list.append(('languages[]', lang))
+
+            response = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                files=[('file', (filename, f, 'application/octet-stream'))],
+                data=data_list,
+                timeout=(10, 600),
+                stream=stream,
+            )
+
+        if task_is_cancelled(task_id):
+            return
+        if response.status_code == 401:
+            update_task(task_id, status='error', error='OpenAI APIキーが無効です。設定画面で確認してください。')
+            return
+        elif response.status_code == 413:
+            update_task(task_id, status='error', error='音声ファイルが最大サイズ(25MB)を超えています。')
+            return
+        elif response.status_code == 429:
+            update_task(task_id, status='error', error='OpenAI APIのレート制限に達しました。時間をおいて再度お試しください。')
+            return
+        elif response.status_code != 200:
+            update_task(task_id, status='error', error=f'OpenAI Transcription API Error {response.status_code}')
+            return
+
+        if stream:
+            full_text = ""
+            for line in response.iter_lines():
+                if task_is_cancelled(task_id):
+                    response.close()
+                    return
+                if line:
+                    decoded = line.decode('utf-8')
+                    if decoded.startswith('data: '):
+                        payload_str = decoded[6:]
+                        if payload_str.strip() == '[DONE]':
+                            break
+                        try:
+                            event = json.loads(payload_str)
+                            etype = event.get('type')
+                            if etype == 'transcript.text.delta':
+                                delta = event.get('delta', '')
+                                full_text += delta
+                                update_task(task_id, thought='', result=full_text)
+                            elif etype == 'transcript.text.done':
+                                full_text = event.get('text', full_text)
+                                update_task(task_id, thought='', result=full_text)
+                        except json.JSONDecodeError:
+                            pass
+        else:
+            result = response.json()
+            full_text = result.get('text', '')
+
+        if task_is_cancelled(task_id):
+            return
+
+        # Apply word replacements server-side (same as Grok)
+        try:
+            import re
+            with app.app_context():
+                active_sets = WordSet.query.filter_by(user_id=user_id, is_active=True).all()
+                for s in active_sets:
+                    for w in s.words:
+                        if w.reading and w.replacement:
+                            full_text = re.sub(re.escape(w.reading), w.replacement, full_text, flags=re.IGNORECASE)
+        except Exception as e:
+            logger.warning(f"Word replacement error: {e}")
+
+        update_task(task_id, status='done', thought='', result=full_text)
+        save_history(user_id, action_type, input_summary, '', full_text)
+
+    except requests.exceptions.Timeout:
+        update_task(task_id, status='error', error='OpenAI APIへのリクエストがタイムアウトしました。')
+    except requests.exceptions.ConnectionError:
+        update_task(task_id, status='error', error='OpenAI APIへの接続に失敗しました。')
+    except Exception as e:
+        logger.error(f"OpenAI Transcription background task {task_id} failed: {e}", exc_info=True)
+        update_task(task_id, status='error', error='OpenAI処理中にエラーが発生しました')
+
+
+def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary):
+    try:
+        if task_is_cancelled(task_id):
+            return
+
+        import subprocess
+        import struct
+
+        # Convert audio to PCM 24kHz 16-bit mono WAV using ffmpeg
+        pcm_path = audio_filepath + '.pcm'
+        try:
+            subprocess.run(
+                ['ffmpeg', '-y', '-i', audio_filepath,
+                 '-ar', '24000', '-ac', '1', '-f', 's16le', pcm_path],
+                capture_output=True, timeout=120, check=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            update_task(task_id, status='error', error='音声変換に失敗しました。ffmpegが必要です。')
+            return
+
+        with open(pcm_path, 'rb') as pcm_file:
+            pcm_data = pcm_file.read()
+        try:
+            os.remove(pcm_path)
+        except OSError:
+            pass
+
+        if task_is_cancelled(task_id):
+            return
+
+        import websocket as ws_client
+
+        full_transcript = ""
+        done_event = threading.Event()
+        error_message = [None]
+
+        def on_open(ws):
+            # Send session.update for transcription session
+            session_update = {
+                "type": "session.update",
+                "session": {
+                    "type": "transcription",
+                    "audio": {
+                        "input": {
+                            "format": {"type": "audio/pcm", "rate": 24000},
+                            "transcription": {"model": "gpt-live-transcribe"},
+                            "turn_detection": None,
+                        }
+                    }
+                }
+            }
+            ws.send(json.dumps(session_update))
+            # Send a small initial chunk to get things started, then stream the rest
+            chunk_size = 24000 * 2  # 1 second of PCM16 24kHz
+            offset = 0
+            while offset < len(pcm_data):
+                if task_is_cancelled(None if not globals() else task_id):
+                    break
+                chunk = pcm_data[offset:offset + chunk_size]
+                b64_chunk = base64.b64encode(chunk).decode('utf-8')
+                append_event = {
+                    "type": "input_audio_buffer.append",
+                    "audio": b64_chunk,
+                }
+                ws.send(json.dumps(append_event))
+                offset += chunk_size
+                time.sleep(0.05)  # small delay to simulate live streaming
+            # Commit the buffer
+            commit_event = {"type": "input_audio_buffer.commit"}
+            ws.send(json.dumps(commit_event))
+
+        def on_message(ws, message):
+            nonlocal full_transcript, error_message, done_event
+            try:
+                event = json.loads(message)
+                etype = event.get('type', '')
+                if etype == 'conversation.item.input_audio_transcription.delta':
+                    delta = event.get('delta', '')
+                    full_transcript += delta
+                    update_task(task_id, thought='', result=full_transcript)
+                elif etype == 'conversation.item.input_audio_transcription.completed':
+                    transcript = event.get('transcript', '')
+                    if transcript:
+                        full_transcript = transcript
+                        update_task(task_id, thought='', result=full_transcript)
+                elif etype == 'error':
+                    error_message[0] = event.get('error', {}).get('message', 'Unknown WebSocket error')
+                    done_event.set()
+                elif etype == 'session.updated':
+                    pass  # Session ready
+                elif etype in ('response.done', 'conversation.item.created'):
+                    pass
+            except json.JSONDecodeError:
+                pass
+
+        def on_error(ws, error):
+            error_message[0] = str(error)
+            done_event.set()
+
+        def on_close(ws, close_status_code, close_msg):
+            done_event.set()
+
+        ws_url = "wss://api.openai.com/v1/realtime?model=gpt-live-transcribe"
+        ws = ws_client.WebSocketApp(
+            ws_url,
+            header=["Authorization: Bearer " + api_key],
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+        )
+
+        ws_thread = threading.Thread(target=ws.run_forever, kwargs={'sslopt': {"check_hostname": True}})
+        ws_thread.daemon = True
+        ws_thread.start()
+
+        # Wait for completion with timeout
+        done_event.wait(timeout=300)
+        ws.close()
+
+        if error_message[0]:
+            update_task(task_id, status='error', error=f'OpenAI Realtimeエラー: {error_message[0]}')
+            return
+
+        if task_is_cancelled(task_id):
+            return
+
+        # Apply word replacements
+        text = full_transcript
+        try:
+            import re
+            with app.app_context():
+                active_sets = WordSet.query.filter_by(user_id=user_id, is_active=True).all()
+                for s in active_sets:
+                    for w in s.words:
+                        if w.reading and w.replacement:
+                            text = re.sub(re.escape(w.reading), w.replacement, text, flags=re.IGNORECASE)
+        except Exception as e:
+            logger.warning(f"Word replacement error: {e}")
+
+        update_task(task_id, status='done', thought='', result=text)
+        save_history(user_id, action_type, input_summary, '', text)
+
+    except Exception as e:
+        logger.error(f"OpenAI Live Transcribe background task {task_id} failed: {e}", exc_info=True)
+        update_task(task_id, status='error', error='OpenAI Live Transcribe処理中にエラーが発生しました')
+
 
 # --- Grok STT Background Processor ---
 def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary):
