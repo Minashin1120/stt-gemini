@@ -1155,13 +1155,10 @@ body.app-body {
 }
 
 .custom-select-menu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    z-index: 100;
+    position: fixed;
+    z-index: 9999;
     display: none;
-    width: 100%;
-    margin-top: 4px;
+    min-width: 180px;
     padding: 4px;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
