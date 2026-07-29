@@ -190,23 +190,21 @@
                 <div class="row mb-3 justify-content-center">
                     <div class="col-md-6 text-start">
                         <label class="form-label small fw-bold mb-1 text-muted"><i class="bi bi-cpu"></i> モデル</label>
-                        <div class="d-flex flex-wrap gap-1" role="group">
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash36" value="gemini-3.6-flash" checked>
-                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash36">3.6 Flash</label>
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash35" value="gemini-3.5-flash">
-                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash35">3.5 Flash</label>
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash35lite" value="gemini-3.5-flash-lite">
-                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash35lite">3.5 Flash-Lite</label>
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash3" value="gemini-3-flash-preview">
-                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash3">3.0 Flash</label>
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_flash31lite" value="gemini-3.1-flash-lite">
-                            <label class="btn btn-outline-primary btn-sm" for="mdl_flash31lite">3.1 Flash-Lite</label>
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_grok_stt" value="grok-stt">
-                            <label class="btn btn-outline-primary btn-sm" for="mdl_grok_stt">Grok STT</label>
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_gpt_transcribe" value="gpt-transcribe">
-                            <label class="btn btn-outline-primary btn-sm" for="mdl_gpt_transcribe">GPT-Trans.</label>
-                            <input type="radio" class="btn-check" name="model_select" id="mdl_gpt_live" value="gpt-live-transcribe">
-                            <label class="btn btn-outline-primary btn-sm" for="mdl_gpt_live">GPT-Live</label>
+                        <div class="custom-select" id="modelSelect">
+                            <button class="custom-select-toggle" type="button">
+                                <span class="custom-select-text">3.6 Flash</span>
+                                <i class="bi bi-chevron-down"></i>
+                            </button>
+                            <div class="custom-select-menu">
+                                <button class="custom-select-option" data-value="gemini-3.6-flash" type="button">3.6 Flash</button>
+                                <button class="custom-select-option" data-value="gemini-3.5-flash" type="button">3.5 Flash</button>
+                                <button class="custom-select-option" data-value="gemini-3.5-flash-lite" type="button">3.5 Flash-Lite</button>
+                                <button class="custom-select-option" data-value="gemini-3-flash-preview" type="button">3.0 Flash</button>
+                                <button class="custom-select-option" data-value="gemini-3.1-flash-lite" type="button">3.1 Flash-Lite</button>
+                                <button class="custom-select-option" data-value="grok-stt" type="button">Grok STT</button>
+                                <button class="custom-select-option" data-value="gpt-transcribe" type="button">GPT-Trans.</button>
+                                <button class="custom-select-option" data-value="gpt-live-transcribe" type="button">GPT-Live</button>
+                            </div>
                         </div>
                     </div>
                     <div class="col-md-6 text-start">
@@ -756,12 +754,7 @@ async function showSwitchView(currentModel) {
         listEl.querySelectorAll('.model-option').forEach(btn => {
             btn.onclick = () => {
                 const model = btn.dataset.model;
-                // Update radio button
-                const radio = document.querySelector(`input[name="model_select"][value="${model}"]`);
-                if (radio) {
-                    radio.checked = true;
-                    radio.dispatchEvent(new Event('change'));
-                }
+                setModel(model);
                 closeApiKeyModal();
                 if (_resolveApiKeyPrompt) _resolveApiKeyPrompt({ proceed: true, model: model });
             };
@@ -1903,10 +1896,29 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function getModel() {
-        const checked = document.querySelector('input[name="model_select"]:checked');
-        return checked ? checked.value : 'gemini-3-flash-preview';
+        return currentModel;
     }
-    let currentModel = getModel();
+    let currentModel = 'gemini-3.6-flash';
+    function setModel(value) {
+        localStorage.setItem('stt_t_' + currentModel, el.think.value);
+        localStorage.setItem('stt_m', value);
+        currentModel = value;
+        const textEl = document.querySelector('#modelSelect .custom-select-text');
+        const opt = document.querySelector(`#modelSelect .custom-select-option[data-value="${value}"]`);
+        if (textEl && opt) textEl.textContent = opt.textContent;
+        const savedThink = localStorage.getItem('stt_t_' + currentModel);
+        if (savedThink) el.think.value = savedThink;
+        updatePostprocessBar();
+        const noThinkModels = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
+        if (noThinkModels.includes(value)) {
+            if (thinkingOpen) thoughtCol.hide();
+            el.think.disabled = true;
+            el.think.title = value === 'grok-stt' ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
+        } else {
+            el.think.disabled = false;
+            el.think.title = '';
+        }
+    }
     function saveSet(){ 
         localStorage.setItem('stt_t_' + getModel(), el.think.value);
         if(el.noise) localStorage.setItem('stt_n', el.noise.checked);
@@ -1915,7 +1927,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const fmt = document.querySelector('input[name="format"]:checked');
         if(fmt) localStorage.setItem('stt_f', fmt.value);
         localStorage.setItem('stt_m', getModel());
-        currentModel = getModel();
     }
     
     const n=localStorage.getItem('stt_n'), rephraseSaved=localStorage.getItem('stt_r'), fillerSaved=localStorage.getItem('stt_fl'), f=localStorage.getItem('stt_f'), m=localStorage.getItem('stt_m');
@@ -1923,15 +1934,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if(rephraseSaved!==null && el.rephrase) el.rephrase.checked=(rephraseSaved==='true');
     if(fillerSaved!==null && el.filler) el.filler.checked=(fillerSaved==='true');
     if(f) { const r = document.querySelector(`input[name="format"][value="${f}"]`); if(r) r.checked=true; }
-    if(m) { const r = document.querySelector(`input[name="model_select"][value="${m}"]`); if(r) r.checked=true; }
-    currentModel = getModel();
+    if (m) {
+        const opt = document.querySelector(`#modelSelect .custom-select-option[data-value="${m}"]`);
+        if (opt) currentModel = m;
+    }
+    const textEl = document.querySelector('#modelSelect .custom-select-text');
+    const activeOpt = document.querySelector(`#modelSelect .custom-select-option[data-value="${currentModel}"]`);
+    if (textEl && activeOpt) textEl.textContent = activeOpt.textContent;
     const savedThink = localStorage.getItem('stt_t_' + currentModel);
     if (savedThink) el.think.value = savedThink;
-    // Grok/OpenAI STTが初期選択されている場合、推論レベルを無効化
     const noThinkModels = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
-    if (noThinkModels.includes(getModel())) {
+    if (noThinkModels.includes(currentModel)) {
         el.think.disabled = true;
-        el.think.title = getModel() === 'grok-stt' ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
+        el.think.title = currentModel === 'grok-stt' ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
         if (thinkingOpen) thoughtCol.hide();
     }
     updatePostprocessBar();
@@ -1942,31 +1957,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if(el.filler) el.filler.addEventListener('change', saveSet);
     document.querySelectorAll('input[name="format"]').forEach(r=>r.addEventListener('change', saveSet));
     function updatePostprocessBar() {
-        const isLite = getModel() === 'gemini-3.1-flash-lite' || getModel() === 'gemini-3.5-flash-lite';
+        const isLite = currentModel === 'gemini-3.1-flash-lite' || currentModel === 'gemini-3.5-flash-lite';
         const bar = document.querySelector('.result-postprocess-bar');
         if (bar) bar.classList.toggle('d-none', !isLite);
     }
 
-
-document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventListener('change', (e) => {
-    if (e.target.checked) {
-        localStorage.setItem('stt_t_' + currentModel, el.think.value);
-        localStorage.setItem('stt_m', e.target.value);
-        currentModel = e.target.value;
-        const savedThink = localStorage.getItem('stt_t_' + currentModel);
-        if (savedThink) el.think.value = savedThink;
-    }
-    updatePostprocessBar();
-    const noThinkModels = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
-    if (noThinkModels.includes(e.target.value) && e.target.checked) {
-        if (thinkingOpen) thoughtCol.hide();
-        el.think.disabled = true;
-        el.think.title = e.target.value === 'grok-stt' ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
-    } else {
-        el.think.disabled = false;
-        el.think.title = '';
-    }
-}));
+    // Custom dropdown event handlers
+    document.querySelectorAll('#modelSelect .custom-select-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            setModel(opt.dataset.value);
+            document.getElementById('modelSelect').classList.remove('open');
+        });
+    });
+    document.querySelector('#modelSelect .custom-select-toggle').addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.getElementById('modelSelect').classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+        const sel = document.getElementById('modelSelect');
+        if (!sel.contains(e.target)) sel.classList.remove('open');
+    });
     
     loadHistory(); 
     loadWordSetStatus();

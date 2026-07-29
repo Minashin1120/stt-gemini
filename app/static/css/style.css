@@ -1107,3 +1107,100 @@ body.app-body {
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* =========================================
+   カスタムセレクト（モデル選択用ドロップダウン）
+   ========================================= */
+.custom-select {
+    position: relative;
+    width: 100%;
+}
+
+.custom-select-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.25rem 0.5rem;
+    font-size: .875rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--text-color);
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+    min-height: 31px;
+}
+
+.custom-select-toggle:hover {
+    border-color: var(--primary-color);
+}
+
+.custom-select-toggle:focus {
+    border-color: var(--primary-color);
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+.custom-select-toggle .bi-chevron-down {
+    transition: transform 0.2s;
+    font-size: .75rem;
+    color: #6c757d;
+}
+
+.custom-select.open .custom-select-toggle .bi-chevron-down {
+    transform: rotate(180deg);
+}
+
+.custom-select-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 100;
+    display: none;
+    width: 100%;
+    margin-top: 4px;
+    padding: 4px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: calc(var(--radius) + 2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.12);
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.custom-select.open .custom-select-menu {
+    display: block;
+    animation: customSelectIn .15s ease;
+}
+
+@keyframes customSelectIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.custom-select-option {
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    font-size: .875rem;
+    line-height: 1.5;
+    color: var(--text-color);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius);
+    text-align: left;
+    cursor: pointer;
+    transition: background .12s;
+}
+
+.custom-select-option:hover {
+    background: rgba(13, 110, 253, 0.08);
+}
+
+.custom-select-option:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+}
