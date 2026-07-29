@@ -203,6 +203,10 @@
                             <label class="btn btn-outline-primary btn-sm" for="mdl_flash31lite">3.1 Flash-Lite</label>
                             <input type="radio" class="btn-check" name="model_select" id="mdl_grok_stt" value="grok-stt">
                             <label class="btn btn-outline-primary btn-sm" for="mdl_grok_stt">Grok STT</label>
+                            <input type="radio" class="btn-check" name="model_select" id="mdl_gpt_transcribe" value="gpt-transcribe">
+                            <label class="btn btn-outline-primary btn-sm" for="mdl_gpt_transcribe">GPT-Trans.</label>
+                            <input type="radio" class="btn-check" name="model_select" id="mdl_gpt_live" value="gpt-live-transcribe">
+                            <label class="btn btn-outline-primary btn-sm" for="mdl_gpt_live">GPT-Live</label>
                         </div>
                     </div>
                     <div class="col-md-6 text-start">
@@ -567,6 +571,7 @@ let _akIsRecording = false;
 let _akOriginalModel = null;
 
 function getApiKeyType(model) {
+    if (model === 'gpt-transcribe' || model === 'gpt-live-transcribe') return 'openai';
     return model === 'grok-stt' ? 'xai' : 'gemini';
 }
 
@@ -602,6 +607,10 @@ function showApiKeyModal(keyType, model) {
         titleEl.textContent = 'xAI (Grok) APIキーの設定';
         msgEl.textContent = 'Grok STT モデルを使用するには xAI API キーが必要です。';
         inputEl.placeholder = 'xai-...';
+    } else if (keyType === 'openai') {
+        titleEl.textContent = 'OpenAI APIキーの設定';
+        msgEl.textContent = 'GPT-Transcribe / GPT-Live モデルを使用するには OpenAI API キーが必要です。';
+        inputEl.placeholder = 'sk-...';
     } else {
         titleEl.textContent = 'Gemini APIキーの設定';
         msgEl.textContent = 'Gemini モデルを使用するには Gemini API キーが必要です。';
@@ -713,6 +722,12 @@ async function showSwitchView(currentModel) {
                 { label: '3.5 Flash-Lite', value: 'gemini-3.5-flash-lite' },
                 { label: '3.0 Flash', value: 'gemini-3-flash-preview' },
                 { label: '3.1 Flash-Lite', value: 'gemini-3.1-flash-lite' }
+            );
+        }
+        if (data.has_openai_key) {
+            models.push(
+                { label: 'GPT-Transcribe', value: 'gpt-transcribe' },
+                { label: 'GPT-Live Transcribe', value: 'gpt-live-transcribe' }
             );
         }
         if (data.has_xai_key) {
@@ -1912,10 +1927,11 @@ document.addEventListener('DOMContentLoaded', () => {
     currentModel = getModel();
     const savedThink = localStorage.getItem('stt_t_' + currentModel);
     if (savedThink) el.think.value = savedThink;
-    // Grok STTが初期選択されている場合、推論レベルを無効化
-    if (getModel() === 'grok-stt') {
+    // Grok/OpenAI STTが初期選択されている場合、推論レベルを無効化
+    const noThinkModels = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
+    if (noThinkModels.includes(getModel())) {
         el.think.disabled = true;
-        el.think.title = 'Grok STTでは推論レベルは使用されません';
+        el.think.title = getModel() === 'grok-stt' ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
         if (thinkingOpen) thoughtCol.hide();
     }
     updatePostprocessBar();
@@ -1941,10 +1957,11 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         if (savedThink) el.think.value = savedThink;
     }
     updatePostprocessBar();
-    if (e.target.value === 'grok-stt' && e.target.checked) {
+    const noThinkModels = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
+    if (noThinkModels.includes(e.target.value) && e.target.checked) {
         if (thinkingOpen) thoughtCol.hide();
         el.think.disabled = true;
-        el.think.title = 'Grok STTでは推論レベルは使用されません';
+        el.think.title = e.target.value === 'grok-stt' ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
     } else {
         el.think.disabled = false;
         el.think.title = '';
@@ -2206,7 +2223,8 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
             el.res.value = initText;
         }
 
-        if (el.think.value !== 'MINIMAL' && getModel() !== 'grok-stt') thoughtCol.show();
+        const noThinkModels2 = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
+        if (el.think.value !== 'MINIMAL' && !noThinkModels2.includes(getModel())) thoughtCol.show();
         el.abort.classList.remove('d-none');
     }
 
@@ -2278,6 +2296,8 @@ document.querySelectorAll('input[name="model_select"]').forEach(r=>r.addEventLis
         const _lvl = el.think.value;
         if (_mdl === 'grok-stt') {
             el.tho.innerText = '[Grok STT は思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
+        } else if (_mdl === 'gpt-transcribe' || _mdl === 'gpt-live-transcribe') {
+            el.tho.innerText = '[OpenAIモデルは思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
         } else if (_mdl === 'gemini-3.1-flash-lite' && (_lvl === 'LOW' || _lvl === 'MEDIUM') && !el.tho.innerText.trim()) {
             el.tho.innerText = '[Flash-Lite は LOW/MEDIUM 設定時に思考プロセスを返しません。表示するには HIGH を選択してください。]';
         }
