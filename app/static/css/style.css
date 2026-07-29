@@ -1157,7 +1157,10 @@ body.app-body {
 .custom-select-menu {
     position: fixed;
     z-index: 9999;
-    display: none;
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: visibility 0s linear .12s, opacity .12s ease, transform .12s ease;
     min-width: 180px;
     padding: 4px;
     background: var(--card-bg);
@@ -1169,13 +1172,10 @@ body.app-body {
 }
 
 .custom-select.open .custom-select-menu {
-    display: block;
-    animation: customSelectIn .15s ease;
-}
-
-@keyframes customSelectIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+    transition-delay: 0s;
 }
 
 .custom-select-option {
