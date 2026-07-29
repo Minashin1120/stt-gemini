@@ -209,12 +209,24 @@
                     </div>
                     <div class="col-md-6 text-start">
                         <label class="form-label small fw-bold mb-1 text-muted"><i class="bi bi-cpu"></i> 推論レベル</label>
-                        <select id="thinking_level" class="form-select form-select-sm">
+                        <select id="thinking_level" class="form-select form-select-sm d-none">
                             <option value="MINIMAL">Minimal (速い・思考プロセス非表示)</option>
                             <option value="LOW" selected>Low (標準)</option>
                             <option value="MEDIUM">Medium (高品質)</option>
                             <option value="HIGH">High (最高品質・遅い)</option>
                         </select>
+                        <div class="custom-select" id="thinkingLevelSelect">
+                            <button class="custom-select-toggle" type="button">
+                                <span class="custom-select-text">Low (標準)</span>
+                                <i class="bi bi-chevron-down"></i>
+                            </button>
+                            <div class="custom-select-menu">
+                                <button class="custom-select-option" data-value="MINIMAL" type="button">Minimal (速い・思考プロセス非表示)</button>
+                                <button class="custom-select-option" data-value="LOW" type="button">Low (標準)</button>
+                                <button class="custom-select-option" data-value="MEDIUM" type="button">Medium (高品質)</button>
+                                <button class="custom-select-option" data-value="HIGH" type="button">High (最高品質・遅い)</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1918,6 +1930,24 @@ document.addEventListener('DOMContentLoaded', () => {
             el.think.disabled = false;
             el.think.title = '';
         }
+        syncThinkDropdown();
+    }
+    function syncThinkDropdown() {
+        const sel = document.getElementById('thinkingLevelSelect');
+        const textEl = sel.querySelector('.custom-select-text');
+        const opt = sel.querySelector(`.custom-select-option[data-value="${el.think.value}"]`);
+        if (textEl && opt) textEl.textContent = opt.textContent;
+        const toggle = sel.querySelector('.custom-select-toggle');
+        if (el.think.disabled) {
+            toggle.setAttribute('disabled', '');
+            toggle.style.opacity = '.65';
+            toggle.style.cursor = 'not-allowed';
+        } else {
+            toggle.removeAttribute('disabled');
+            toggle.style.opacity = '';
+            toggle.style.cursor = '';
+        }
+        toggle.title = el.think.title || '';
     }
     function saveSet(){ 
         localStorage.setItem('stt_t_' + getModel(), el.think.value);
@@ -1950,6 +1980,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (thinkingOpen) thoughtCol.hide();
     }
     updatePostprocessBar();
+    syncThinkDropdown();
     
     el.think.addEventListener('change', saveSet);
     if(el.noise) el.noise.addEventListener('change', saveSet);
@@ -1963,8 +1994,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Custom dropdown event handlers
-    function positionDropdown() {
-        const sel = document.getElementById('modelSelect');
+    function positionDropdown(id) {
+        const sel = document.getElementById(id);
         const toggle = sel.querySelector('.custom-select-toggle');
         const menu = sel.querySelector('.custom-select-menu');
         const rect = toggle.getBoundingClientRect();
@@ -1972,30 +2003,45 @@ document.addEventListener('DOMContentLoaded', () => {
         menu.style.width = rect.width + 'px';
         menu.style.top = (rect.bottom + 4) + 'px';
     }
+    function toggleCustomDropdown(id) {
+        const sel = document.getElementById(id);
+        const wasOpen = sel.classList.contains('open');
+        document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+        if (!wasOpen) {
+            sel.classList.add('open');
+            positionDropdown(id);
+        }
+    }
+    function closeAllDropdowns() {
+        document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+    }
     document.querySelectorAll('#modelSelect .custom-select-option').forEach(opt => {
         opt.addEventListener('click', () => {
             setModel(opt.dataset.value);
-            document.getElementById('modelSelect').classList.remove('open');
+            closeAllDropdowns();
         });
     });
     document.querySelector('#modelSelect .custom-select-toggle').addEventListener('click', (e) => {
         e.stopPropagation();
-        const sel = document.getElementById('modelSelect');
-        const wasOpen = sel.classList.contains('open');
-        sel.classList.toggle('open');
-        if (!wasOpen) positionDropdown();
+        toggleCustomDropdown('modelSelect');
     });
-    document.addEventListener('click', (e) => {
-        const sel = document.getElementById('modelSelect');
-        if (!sel.contains(e.target)) sel.classList.remove('open');
+    document.querySelectorAll('#thinkingLevelSelect .custom-select-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            el.think.value = opt.dataset.value;
+            el.think.dispatchEvent(new Event('change'));
+            syncThinkDropdown();
+            closeAllDropdowns();
+        });
     });
+    document.querySelector('#thinkingLevelSelect .custom-select-toggle').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleCustomDropdown('thinkingLevelSelect');
+    });
+    document.addEventListener('click', closeAllDropdowns);
     window.addEventListener('scroll', () => {
-        const sel = document.getElementById('modelSelect');
-        if (sel.classList.contains('open')) positionDropdown();
+        document.querySelectorAll('.custom-select.open').forEach(s => positionDropdown(s.id));
     }, true);
-    window.addEventListener('resize', () => {
-        document.getElementById('modelSelect').classList.remove('open');
-    });
+    window.addEventListener('resize', closeAllDropdowns);
     
     loadHistory(); 
     loadWordSetStatus();
