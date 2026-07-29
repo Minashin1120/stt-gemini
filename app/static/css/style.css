@@ -1144,6 +1144,14 @@ body.app-body {
     box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
 }
 
+.custom-select-toggle[disabled] {
+    opacity: .65;
+    cursor: not-allowed;
+    pointer-events: none;
+    background: var(--input-bg);
+    border-color: var(--input-border);
+}
+
 .custom-select-toggle .bi-chevron-down {
     transition: transform 0.2s;
     font-size: .75rem;
