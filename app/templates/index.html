@@ -553,6 +553,34 @@ document.addEventListener('DOMContentLoaded', () => {
             await refreshManageList(currentManageSetId);
         }
     });
+
+    // Auto-generate yomigana from replacement word
+    let yomiganaTimer = null;
+    container.addEventListener('input', async (e) => {
+        const form = e.target.closest('.add-word-form');
+        if (!form) return;
+        const cb = form.querySelector('.auto-yomigana-cb');
+        if (!cb || !cb.checked) return;
+        const readingInput = form.querySelector('input[name="reading"]');
+        const replacementInput = form.querySelector('input[name="replacement"]');
+        if (!readingInput || !replacementInput || e.target !== replacementInput) return;
+        const word = replacementInput.value.trim();
+        if (!word) return;
+        clearTimeout(yomiganaTimer);
+        yomiganaTimer = setTimeout(async () => {
+            const model = localStorage.getItem('stt_yomigana_m') || 'gemini-3.5-flash';
+            try {
+                const fd = new FormData();
+                fd.append('word', word);
+                fd.append('model', model);
+                const r = await csrfFetch('/api/yomigana/generate', { method: 'POST', body: fd });
+                const data = await r.json();
+                if (data.reading) readingInput.value = data.reading;
+            } catch(e) {
+                console.error('Yomigana generation failed', e);
+            }
+        }, 600);
+    });
 });
 
 function updateWordSetButtonText(sets) {

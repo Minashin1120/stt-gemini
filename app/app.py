@@ -967,6 +967,37 @@ def add_word():
         return jsonify({'success': True, 'id': new_word.id})
     return jsonify({'error': 'Invalid data'}), 400
 
+@app.route('/api/yomigana/generate', methods=['POST'])
+@login_required
+def generate_yomigana():
+    word = (request.form.get('word') or '').strip()
+    model = request.form.get('model', 'gemini-3.5-flash')
+    if not word:
+        return jsonify({'error': 'Word is required'}), 400
+    model = validate_model(model)
+    if model not in ALLOWED_MODELS or not model.startswith('gemini-'):
+        model = 'gemini-3.5-flash'
+    api_key = current_user.get_api_key()
+    if not api_key:
+        return jsonify({'error': 'Gemini API key not configured'}), 400
+    prompt = f"次の単語の読み方をひらがな（スペースなし）で答えてください。読み方だけを出力し、他の文章は含めないでください。\n単語: {word}"
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        response = requests.post(
+            url,
+            headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+            json={'contents': [{'parts': [{'text': prompt}]}]},
+            timeout=30
+        )
+        if response.status_code != 200:
+            return jsonify({'error': f'API Error: {response.status_code}'}), 500
+        data = response.json()
+        reading = data['candidates'][0]['content']['parts'][0]['text'].strip()
+        return jsonify({'reading': reading})
+    except Exception as e:
+        logger.error(f"Yomigana generation failed: {e}", exc_info=True)
+        return jsonify({'error': '生成に失敗しました'}), 500
+
 @app.route('/api/words/delete/<int:word_id>', methods=['POST'])
 @login_required
 def delete_word(word_id):
