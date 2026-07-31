@@ -269,6 +269,20 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn('applyConstraints(', acquisition)
         self.assertNotIn('googNoiseSuppression', acquisition)
 
+    def test_recording_noise_off_prioritizes_single_exact_constraints(self):
+        template_path = os.path.join(
+            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
+        )
+        with open(template_path, encoding='utf-8') as template:
+            source = template.read()
+        builder = source[
+            source.index('function buildMicConstraintAttempts'):
+            source.index('function summarizeMicState')
+        ]
+        self.assertLess(builder.index("label: 'raw-ec-master'"), builder.index("label: 'raw-ns-exact'"))
+        self.assertLess(builder.index("label: 'raw-ns-exact'"), builder.index("label: noiseOn ? 'processed-exact' : 'raw-exact'"))
+        self.assertLess(builder.index("label: noiseOn ? 'processed-exact' : 'raw-exact'"), builder.index("label: noiseOn ? 'processed-relaxed' : 'raw-relaxed'"))
+
     def test_mobile_recording_pins_the_built_in_microphone_by_exact_device_id(self):
         template_path = os.path.join(
             os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'

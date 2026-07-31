@@ -1149,16 +1149,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const attempts = [];
-        if (Object.keys(exact).length) {
-            attempts.push({
-                label: noiseOn ? 'processed-exact' : 'raw-exact',
-                strict: true,
-                fullyStrict: ['echoCancellation', 'noiseSuppression', 'autoGainControl'].every(name => !!supported[name]),
-                constraints: { ...exact, ...common }
-            });
-        }
         // 2024年以降の一部Chrome/Androidは複数の exact:false を拒否する報告がある。
-        // EC単独、NS単独の必須指定を別ストリームとして試し、成功前のストリームは保持しない。
+        // さらに、全項目を exact でまとめると、どれか一つが変更不能な端末でセット全体が
+        // reject される。そこで OFF は EC 単独、NS 単独、全項目、通常指定の順で試す。
+        // Chromium/Android では初回の EC exact:false が APM 全体を止める鍵になる。
         if (!noiseOn && supported.echoCancellation) {
             attempts.push({
                 label: 'raw-ec-master',
@@ -1173,6 +1167,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 strict: true,
                 fullyStrict: false,
                 constraints: { ...relaxed, noiseSuppression: { exact: false }, ...common }
+            });
+        }
+        if (Object.keys(exact).length) {
+            attempts.push({
+                label: noiseOn ? 'processed-exact' : 'raw-exact',
+                strict: true,
+                fullyStrict: ['echoCancellation', 'noiseSuppression', 'autoGainControl'].every(name => !!supported[name]),
+                constraints: { ...exact, ...common }
             });
         }
         attempts.push({
