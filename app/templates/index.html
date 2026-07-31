@@ -37,6 +37,33 @@
 <!-- モーダル類 -->
 <div class="modal fade" id="deleteModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5>音声破棄</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">音声を削除しますか？<br><small class="text-danger">再分析不可になります。</small></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-danger" id="confirmDeleteBtn">削除</button></div></div></div></div>
 
+<div class="modal fade" id="micProcessingErrorModal" tabindex="-1" aria-labelledby="micProcessingErrorTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger" id="micProcessingErrorTitle"><i class="bi bi-exclamation-triangle me-2"></i>録音を開始できません</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+            </div>
+            <div class="modal-body">
+                <p id="micProcessingErrorMessage" class="mb-3"></p>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="btnMicProcessingHelp" aria-expanded="false" aria-controls="micProcessingHelp">
+                    <i class="bi bi-question-circle me-1"></i>対処方法を確認
+                </button>
+                <div id="micProcessingHelp" class="alert alert-info mt-3 mb-0 d-none">
+                    <ol class="mb-0 ps-3">
+                        <li>ページを再読み込みして、もう一度録音をお試しください。</li>
+                        <li class="mt-2">改善しない場合は、ノイズ除去スイッチを反対側にして一度録音を開始・停止し、希望の状態に戻して再試行してください。</li>
+                        <li class="mt-2">それでも改善しない場合は、Chromeのタブを閉じて開き直してください。</li>
+                    </ol>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="fileManagerModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">保存データ (10分保持)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="alert alert-info py-1 mb-2" style="font-size: 0.8rem;"><i class="bi bi-info-circle me-1"></i>保存データは文字起こし結果に影響します。</div><div id="fileListContainer" class="list-group list-group-flush"></div></div><div class="modal-footer"><button class="btn btn-primary" onclick="loadFileMetadata()">更新</button></div></div></div></div>
 
 <div class="modal fade" id="wordSetModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">単語リストの有効化</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="d-flex justify-content-between align-items-center mb-3"><p class="small text-muted mb-0">使用する単語セットにチェックを入れてください。</p><button type="button" class="btn btn-sm btn-outline-secondary" onclick="resetWordSets()">選択リセット</button></div><div id="wordSetListContainer" class="list-group list-group-flush"></div></div><div class="modal-footer"><button type="button" class="btn btn-sm btn-link me-auto" onclick="openWordSetManageModal()">リストの編集・作成</button><button class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button></div></div></div></div>
@@ -1631,6 +1658,38 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeUploadId = null;
 
     const bsDelModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    const micProcessingErrorModalEl = document.getElementById('micProcessingErrorModal');
+    const micProcessingErrorMessage = document.getElementById('micProcessingErrorMessage');
+    const btnMicProcessingHelp = document.getElementById('btnMicProcessingHelp');
+    const micProcessingHelp = document.getElementById('micProcessingHelp');
+    const bsMicProcessingErrorModal = micProcessingErrorModalEl
+        ? new bootstrap.Modal(micProcessingErrorModalEl)
+        : null;
+
+    function setMicProcessingHelpOpen(open) {
+        if (!btnMicProcessingHelp || !micProcessingHelp) return;
+        btnMicProcessingHelp.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btnMicProcessingHelp.innerHTML = open
+            ? '<i class="bi bi-chevron-up me-1"></i>対処方法を閉じる'
+            : '<i class="bi bi-question-circle me-1"></i>対処方法を確認';
+        micProcessingHelp.classList.toggle('d-none', !open);
+    }
+
+    function showMicProcessingErrorDialog(message) {
+        if (!bsMicProcessingErrorModal || !micProcessingErrorMessage) {
+            showToast(message, true);
+            return;
+        }
+        micProcessingErrorMessage.textContent = message;
+        setMicProcessingHelpOpen(false);
+        bsMicProcessingErrorModal.show();
+    }
+
+    if (btnMicProcessingHelp) {
+        btnMicProcessingHelp.addEventListener('click', () => {
+            setMicProcessingHelpOpen(btnMicProcessingHelp.getAttribute('aria-expanded') !== 'true');
+        });
+    }
 
     // 推論ボックス: Bootstrap Collapse の遷移ロックを避け、途中クリックで即反転
     const thinkingPanel = document.getElementById('collapseThinking');
@@ -2729,10 +2788,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const failedFields = [...(verifiedMic.mismatches || []), ...(verifiedMic.unknown || [])]
                     .map(name => fieldNames[name] || name)
                     .join('/');
-                throw new Error(
+                const verificationError = new Error(
                     `ノイズ除去${noiseOn ? 'ON' : 'OFF'}を確認できないため録音を開始しません`
                     + (failedFields ? `（確認項目: ${failedFields}）` : '')
                 );
+                verificationError.isMicProcessingVerificationError = true;
+                throw verificationError;
             }
 
             // getUserMedia が長引くと suspended になりうる → 再確保
@@ -2846,7 +2907,11 @@ document.addEventListener('DOMContentLoaded', () => {
             teardownCaptureGraph();
             if (audioStream) { audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
             el.stat.innerText="エラー";
-            showToast(e.message || String(e), true);
+            if (e && e.isMicProcessingVerificationError) {
+                showMicProcessingErrorDialog(e.message || String(e));
+            } else {
+                showToast(e.message || String(e), true);
+            }
         }
     }
 
