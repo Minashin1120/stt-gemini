@@ -83,7 +83,7 @@ document.documentElement.setAttribute('data-theme', localStorage.getItem('app_th
 
 1. `index.html` は行数が多いため、録音（`rec` / `vis`）、アップロード、SSE、改善のブロックを意識して変更する
 2. 識別子の重複（過去に `stream` 名衝突で SyntaxError）に注意
-3. モバイル Chrome のマイク制約は歴史的に挙動が変わりやすい。OFFは取得後の `applyConstraints` ではなく、初回 `getUserMedia` の exact 制約で録音プリセットを決めること。`buildMicConstraintAttempts` は OFF 時に「EC単独の `exact:false` → NS単独 → 全項目の exact → relaxed」の順を保つこと
+3. モバイル Chrome のマイク制約は歴史的に挙動が変わりやすい。OFFは取得後の `applyConstraints` ではなく、初回 `getUserMedia` の exact 制約で録音プリセットを決めること。`buildMicConstraintAttempts` は OFF 時に「EC単独の `exact:false` → NS単独 → 全項目の exact → relaxed」の順を保つこと。録音開始前の実効値検証に失敗した場合は録音を開始しない
 4. モバイルのマイクは許可後に `enumerateDevices()` で「内蔵」候補を探し、`deviceId: { exact: ... }` で再取得する。`default` は外部機器へ切り替わり得るため固定先として扱わない
 5. 実機確認では「内蔵マイク: 固定確認」「Chrome処理: OFF確認」バッジ、入力dBFS、実ファイル、小声の文字起こしを確認すること。`getSettings()` は端末メーカーの前段DSPまでは証明しない
 6. プロンプト定数の大半は **サーバー側**。フロントで持つ固定文は間隔修正の `fixInstruction` のみ（現状）

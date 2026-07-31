@@ -1263,6 +1263,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     mismatch: state.mismatch,
                     mismatches: state.mismatches,
                     unknown: state.unknown,
+                    verified: state.verified,
                     processingFullyOff: state.processingFullyOff,
                     appliedConstraints,
                     attempts: diagnostics
@@ -2718,6 +2719,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const noiseOn = !!(el.noise && el.noise.checked);
             recordNoiseSuppression = noiseOn;
             audioStream = await acquireMicStream(noiseOn);
+            const verifiedMic = audioStream._sttMicSettings || {};
+            if (!verifiedMic.verified) {
+                const fieldNames = {
+                    echoCancellation: 'EC',
+                    noiseSuppression: 'NS',
+                    autoGainControl: 'AGC'
+                };
+                const failedFields = [...(verifiedMic.mismatches || []), ...(verifiedMic.unknown || [])]
+                    .map(name => fieldNames[name] || name)
+                    .join('/');
+                throw new Error(
+                    `ノイズ除去${noiseOn ? 'ON' : 'OFF'}を確認できないため録音を開始しません`
+                    + (failedFields ? `（確認項目: ${failedFields}）` : '')
+                );
+            }
 
             // getUserMedia が長引くと suspended になりうる → 再確保
             const ctxState = await ensureAudioContextRunning();
@@ -2776,7 +2792,7 @@ document.addEventListener('DOMContentLoaded', () => {
             startVisualizer();
 
             el.recNew.disabled=el.recAdd.disabled=true; el.stop.disabled=el.pause.disabled=el.cancel.disabled=false;
-            const mic = audioStream._sttMicSettings || {};
+            const mic = verifiedMic;
             lastMicSettings = mic;
             const effNs = mic.noiseSuppression;
             const mismatch = !!mic.mismatch || (!noiseOn && !mic.processingFullyOff);
