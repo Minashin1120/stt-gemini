@@ -1026,6 +1026,7 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
             try:
                 if task_is_cancelled(task_id):
                     return
+                update_task(task_id, phase='sending_to_api')
                 response = requests.post(
                     url,
                     headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
@@ -1052,6 +1053,7 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                         update_task(task_id, status='error', error=f'API Error {response.status_code}')
                     return
 
+                update_task(task_id, phase='transcribing')
                 for line in response.iter_lines():
                     if task_is_cancelled(task_id):
                         response.close()
@@ -1092,9 +1094,16 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
         update_task(task_id, status='error', error='処理中にエラーが発生しました')
 
 # --- SSE Generator that polls Redis for task progress ---
+# 各フェーズの表示メッセージ。バックグラウンド処理が update_task(phase=...) で切り替える。
+PHASE_LABELS = {
+    'sending_to_api': 'APIサーバーに送信中...',
+    'transcribing': '解析中...',
+}
+
 def stream_task_updates(task_id):
     last_thought = ""
     last_text = ""
+    last_phase = ""
     while True:
         task = get_task(task_id)
         if not task:
@@ -1104,6 +1113,11 @@ def stream_task_updates(task_id):
         status = task.get('status', 'running')
         thought = task.get('thought', '') or ''
         text = task.get('result', '') or ''
+        phase = task.get('phase', '') or ''
+        
+        if phase != last_phase and phase in PHASE_LABELS:
+            yield f"data: {json.dumps({'type': 'status', 'content': PHASE_LABELS[phase]})}\n\n"
+            last_phase = phase
         
         if thought != last_thought:
             new_part = thought[len(last_thought):]
@@ -1667,6 +1681,21 @@ def upload_chunk():
 
     return jsonify({'success': True, 'chunk_index': chunk_index})
 
+@app.route('/api/upload_cancel', methods=['POST'])
+@login_required
+def upload_cancel():
+    data = request.get_json(silent=True) or {}
+    upload_id = request.form.get('upload_id') or data.get('upload_id')
+    upload_id = sanitize_upload_id(upload_id)
+    if not upload_id:
+        return jsonify({'error': 'Invalid upload_id'}), 400
+    chunks_dir = os.path.join(get_user_chunks_root(current_user.id), upload_id)
+    if os.path.isdir(chunks_dir):
+        # 結合処理中(.complete)のディレクトリは削除しない
+        if not os.path.exists(os.path.join(chunks_dir, '.complete')):
+            shutil.rmtree(chunks_dir, ignore_errors=True)
+    return jsonify({'success': True})
+
 @app.route('/api/upload_complete', methods=['POST'])
 @login_required
 def upload_complete():
@@ -1977,6 +2006,7 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
                 for lang in languages:
                     data_list.append(('languages[]', lang))
 
+            update_task(task_id, phase='sending_to_api')
             response = requests.post(
                 url,
                 headers={"Authorization": f"Bearer {api_key}"},
@@ -2000,6 +2030,8 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
         elif response.status_code != 200:
             update_task(task_id, status='error', error=f'OpenAI Transcription API Error {response.status_code}')
             return
+
+        update_task(task_id, phase='transcribing')
 
         if stream:
             full_text = ""
@@ -2108,6 +2140,7 @@ def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepa
                 }
             }
             ws.send(json.dumps(session_update))
+            update_task(task_id, phase='transcribing')
             # Send a small initial chunk to get things started, then stream the rest
             chunk_size = 24000 * 2  # 1 second of PCM16 24kHz
             offset = 0
@@ -2159,6 +2192,7 @@ def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepa
             done_event.set()
 
         ws_url = "wss://api.openai.com/v1/realtime?model=gpt-live-transcribe"
+        update_task(task_id, phase='sending_to_api')
         ws = ws_client.WebSocketApp(
             ws_url,
             header=["Authorization: Bearer " + api_key],
@@ -2231,6 +2265,7 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
             # Prepare multipart form data (file must be last)
             files = {'file': (filename, f, mime)}
 
+            update_task(task_id, phase='sending_to_api')
             response = requests.post(
                 url,
                 headers={"Authorization": f"Bearer {api_key}"},
@@ -2252,6 +2287,8 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
         elif response.status_code != 200:
             update_task(task_id, status='error', error=f'xAI STT API Error {response.status_code}')
             return
+
+        update_task(task_id, phase='transcribing')
 
         result = response.json()
         text = result.get('text', '')
