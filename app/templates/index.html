@@ -580,9 +580,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 fd.append('model', model);
                 const r = await csrfFetch('/api/yomigana/generate', { method: 'POST', body: fd });
                 const data = await r.json();
-                if (data.reading) readingInput.value = data.reading;
+                if (data.reading) {
+                    readingInput.value = data.reading;
+                } else {
+                    showToast('読みの自動生成に失敗しました: ' + (data.error || ('HTTP ' + r.status)), true);
+                }
             } catch(e) {
                 console.error('Yomigana generation failed', e);
+                showToast('読みの自動生成に失敗しました', true);
             }
         }, 600);
     });

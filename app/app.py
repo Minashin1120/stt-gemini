@@ -990,7 +990,12 @@ def generate_yomigana():
             timeout=30
         )
         if response.status_code != 200:
-            return jsonify({'error': f'API Error: {response.status_code}'}), 500
+            detail = ''
+            try:
+                detail = response.json().get('error', {}).get('message', '')
+            except Exception:
+                pass
+            return jsonify({'error': f'API Error: {response.status_code}' + (f' ({detail})' if detail else '')}), 500
         data = response.json()
         reading = data['candidates'][0]['content']['parts'][0]['text'].strip()
         return jsonify({'reading': reading})
