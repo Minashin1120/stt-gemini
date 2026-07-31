@@ -1053,7 +1053,8 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                         update_task(task_id, status='error', error=f'API Error {response.status_code}')
                     return
 
-                update_task(task_id, phase='transcribing')
+                update_task(task_id, phase='receiving')
+                content_started = False
                 for line in response.iter_lines():
                     if task_is_cancelled(task_id):
                         response.close()
@@ -1069,10 +1070,16 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                                         content = p.get('text', '')
                                         if not content:
                                             continue
+                                        if not content_started:
+                                            update_task(task_id, phase='transcribing')
+                                            content_started = True
                                         full_thought += content
                                         update_task(task_id, thought=full_thought, result=full_text)
                                     elif 'text' in p:
                                         content = p['text']
+                                        if not content_started:
+                                            update_task(task_id, phase='transcribing')
+                                            content_started = True
                                         full_text += content
                                         update_task(task_id, thought=full_thought, result=full_text)
                             except:
@@ -1097,6 +1104,7 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
 # 各フェーズの表示メッセージ。バックグラウンド処理が update_task(phase=...) で切り替える。
 PHASE_LABELS = {
     'sending_to_api': 'APIサーバーに送信中...',
+    'receiving': 'APIサーバーから結果を受信中...',
     'transcribing': '解析中...',
 }
 
@@ -2031,10 +2039,11 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
             update_task(task_id, status='error', error=f'OpenAI Transcription API Error {response.status_code}')
             return
 
-        update_task(task_id, phase='transcribing')
+        update_task(task_id, phase='receiving')
 
         if stream:
             full_text = ""
+            content_started = False
             for line in response.iter_lines():
                 if task_is_cancelled(task_id):
                     response.close()
@@ -2050,14 +2059,21 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
                             etype = event.get('type')
                             if etype == 'transcript.text.delta':
                                 delta = event.get('delta', '')
+                                if not content_started:
+                                    update_task(task_id, phase='transcribing')
+                                    content_started = True
                                 full_text += delta
                                 update_task(task_id, thought='', result=full_text)
                             elif etype == 'transcript.text.done':
+                                if not content_started:
+                                    update_task(task_id, phase='transcribing')
+                                    content_started = True
                                 full_text = event.get('text', full_text)
                                 update_task(task_id, thought='', result=full_text)
                         except json.JSONDecodeError:
                             pass
         else:
+            update_task(task_id, phase='transcribing')
             result = response.json()
             full_text = result.get('text', '')
 
@@ -2140,7 +2156,7 @@ def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepa
                 }
             }
             ws.send(json.dumps(session_update))
-            update_task(task_id, phase='transcribing')
+            update_task(task_id, phase='receiving')
             # Send a small initial chunk to get things started, then stream the rest
             chunk_size = 24000 * 2  # 1 second of PCM16 24kHz
             offset = 0
@@ -2168,12 +2184,12 @@ def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepa
                 if etype == 'conversation.item.input_audio_transcription.delta':
                     delta = event.get('delta', '')
                     full_transcript += delta
-                    update_task(task_id, thought='', result=full_transcript)
+                    update_task(task_id, phase='transcribing', thought='', result=full_transcript)
                 elif etype == 'conversation.item.input_audio_transcription.completed':
                     transcript = event.get('transcript', '')
                     if transcript:
                         full_transcript = transcript
-                        update_task(task_id, thought='', result=full_transcript)
+                        update_task(task_id, phase='transcribing', thought='', result=full_transcript)
                 elif etype == 'error':
                     error_message[0] = event.get('error', {}).get('message', 'Unknown WebSocket error')
                     done_event.set()
@@ -2288,7 +2304,7 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
             update_task(task_id, status='error', error=f'xAI STT API Error {response.status_code}')
             return
 
-        update_task(task_id, phase='transcribing')
+        update_task(task_id, phase='receiving')
 
         result = response.json()
         text = result.get('text', '')
