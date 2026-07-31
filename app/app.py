@@ -1054,7 +1054,7 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                     return
 
                 update_task(task_id, phase='receiving')
-                content_started = False
+                text_started = False
                 for line in response.iter_lines():
                     if task_is_cancelled(task_id):
                         response.close()
@@ -1070,16 +1070,13 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
                                         content = p.get('text', '')
                                         if not content:
                                             continue
-                                        if not content_started:
-                                            update_task(task_id, phase='transcribing')
-                                            content_started = True
                                         full_thought += content
                                         update_task(task_id, thought=full_thought, result=full_text)
                                     elif 'text' in p:
                                         content = p['text']
-                                        if not content_started:
+                                        if not text_started:
                                             update_task(task_id, phase='transcribing')
-                                            content_started = True
+                                            text_started = True
                                         full_text += content
                                         update_task(task_id, thought=full_thought, result=full_text)
                             except:
@@ -1104,8 +1101,8 @@ def process_gemini_background(task_id, api_key, payload, user_id, action_type, i
 # 各フェーズの表示メッセージ。バックグラウンド処理が update_task(phase=...) で切り替える。
 PHASE_LABELS = {
     'sending_to_api': 'APIサーバーに送信中...',
-    'receiving': 'APIサーバーから結果を受信中...',
-    'transcribing': '解析中...',
+    'receiving': '解析中...',
+    'transcribing': '書き起こし中...',
 }
 
 def stream_task_updates(task_id):
@@ -2308,6 +2305,7 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
 
         result = response.json()
         text = result.get('text', '')
+        update_task(task_id, phase='transcribing')
 
         # Apply word replacements server-side (custom vocabulary)
         try:
