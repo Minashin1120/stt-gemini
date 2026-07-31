@@ -158,6 +158,59 @@ class SecurityTests(unittest.TestCase):
         open(os.path.join(chunks_dir, '.complete'), 'w').close()
         self.assertEqual(self.post_chunk(client, self.first_id, content=b'other').status_code, 409)
 
+    def test_upload_cancel_removes_incomplete_chunks(self):
+        client = application.app.test_client()
+        self.assertEqual(self.post_chunk(client, self.first_id, b'audio').status_code, 200)
+        chunks_dir = os.path.join(
+            self.upload_root, '_chunks', f'user_{self.first_id}', 'shared'
+        )
+        self.assertTrue(os.path.isdir(chunks_dir))
+
+        token = self.authenticate(client, self.first_id)
+        response = client.post(
+            '/api/upload_cancel',
+            data={'upload_id': 'shared', '_js_challenge': f'valid_{token}'},
+            headers={'User-Agent': 'Mozilla/5.0', 'X-CSRFToken': token},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(os.path.exists(chunks_dir))
+
+    def test_upload_cancel_preserves_merging_upload(self):
+        client = application.app.test_client()
+        self.assertEqual(self.post_chunk(client, self.first_id, b'audio').status_code, 200)
+        chunks_dir = os.path.join(
+            self.upload_root, '_chunks', f'user_{self.first_id}', 'shared'
+        )
+        open(os.path.join(chunks_dir, '.complete'), 'w').close()
+
+        token = self.authenticate(client, self.first_id)
+        response = client.post(
+            '/api/upload_cancel',
+            data={'upload_id': 'shared', '_js_challenge': f'valid_{token}'},
+            headers={'User-Agent': 'Mozilla/5.0', 'X-CSRFToken': token},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(os.path.isdir(chunks_dir))
+
+    def test_upload_cancel_is_isolated_by_user(self):
+        first_client = application.app.test_client()
+        self.assertEqual(self.post_chunk(first_client, self.first_id, b'first').status_code, 200)
+        first_chunks = os.path.join(
+            self.upload_root, '_chunks', f'user_{self.first_id}', 'shared'
+        )
+        self.assertTrue(os.path.isdir(first_chunks))
+
+        second_client = application.app.test_client()
+        token = self.authenticate(second_client, self.second_id)
+        response = second_client.post(
+            '/api/upload_cancel',
+            data={'upload_id': 'shared', '_js_challenge': f'valid_{token}'},
+            headers={'User-Agent': 'Mozilla/5.0', 'X-CSRFToken': token},
+        )
+        self.assertEqual(response.status_code, 200)
+        # 別ユーザーのチャンクは削除されない
+        self.assertTrue(os.path.isdir(first_chunks))
+
     def test_settings_never_render_decrypted_api_key(self):
         client = application.app.test_client()
         self.authenticate(client, self.first_id)
