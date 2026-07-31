@@ -294,7 +294,12 @@ class SecurityTests(unittest.TestCase):
         recording_started = recording.index('isRecording = true')
         self.assertLess(verification, recording_started)
         self.assertIn("を確認できないため録音を開始しません", recording)
+        self.assertIn('verificationError.isMicProcessingVerificationError = true', recording)
+        self.assertIn('showMicProcessingErrorDialog(e.message || String(e))', recording)
         self.assertIn('verified: state.verified', source)
+        self.assertIn('id="micProcessingErrorModal"', source)
+        self.assertIn('id="btnMicProcessingHelp"', source)
+        self.assertIn('id="micProcessingHelp"', source)
 
     def test_mobile_recording_pins_the_built_in_microphone_by_exact_device_id(self):
         template_path = os.path.join(
