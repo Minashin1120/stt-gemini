@@ -283,6 +283,19 @@ class SecurityTests(unittest.TestCase):
         self.assertLess(builder.index("label: 'raw-ns-exact'"), builder.index("label: noiseOn ? 'processed-exact' : 'raw-exact'"))
         self.assertLess(builder.index("label: noiseOn ? 'processed-exact' : 'raw-exact'"), builder.index("label: noiseOn ? 'processed-relaxed' : 'raw-relaxed'"))
 
+    def test_recording_stops_when_browser_processing_state_is_unverified(self):
+        template_path = os.path.join(
+            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
+        )
+        with open(template_path, encoding='utf-8') as template:
+            source = template.read()
+        recording = source[source.index('async function rec('):source.index('el.recNew.onclick')]
+        verification = recording.index('if (!verifiedMic.verified)')
+        recording_started = recording.index('isRecording = true')
+        self.assertLess(verification, recording_started)
+        self.assertIn("を確認できないため録音を開始しません", recording)
+        self.assertIn('verified: state.verified', source)
+
     def test_mobile_recording_pins_the_built_in_microphone_by_exact_device_id(self):
         template_path = os.path.join(
             os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
