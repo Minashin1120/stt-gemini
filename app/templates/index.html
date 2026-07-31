@@ -111,7 +111,7 @@
         <h1>音声を、伝わる文章へ。</h1>
         <p>録音・文字起こし・文章改善を、ひとつのワークスペースで。</p>
     </div>
-    <div class="workspace-state"><span class="state-dot"></span>システム準備完了</div>
+    <div class="workspace-state"><span class="state-dot"></span>システム起動済み</div>
 </div>
 
 <div class="row g-4 workspace-grid">
@@ -151,7 +151,8 @@
                         <div class="d-flex justify-content-center gap-3 align-items-center mb-3 flex-wrap">
                             <div class="btn-group" role="group"><input type="radio" class="btn-check" name="format" id="fmt_mp3" value="mp3" checked><label class="btn btn-outline-secondary btn-sm" for="fmt_mp3">MP3</label><input type="radio" class="btn-check" name="format" id="fmt_wav" value="wav"><label class="btn btn-outline-secondary btn-sm" for="fmt_wav">WAV</label></div>
                             <div class="vr"></div>
-                                        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="noiseSuppression" checked><label class="form-check-label small ms-1" for="noiseSuppression">ノイズ除去</label></div>
+                            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="noiseSuppression" checked><label class="form-check-label small ms-1" for="noiseSuppression">ノイズ除去</label></div>
+                            <button type="button" id="btnPrepareMic" class="btn btn-outline-primary btn-sm rounded-pill"><i class="bi bi-mic me-1"></i>マイクを準備</button>
                         </div>
                         <div class="d-flex justify-content-center flex-wrap gap-2 mb-2">
                             <button id="btnRecordNew" class="btn btn-danger btn-lg rounded-pill px-4 primary-record-action"><i class="bi bi-mic-fill"></i> 新規録音</button>
@@ -263,7 +264,7 @@
                 </div>
 
                 <div class="d-flex justify-content-center align-items-center gap-2 mb-2 flex-wrap">
-                    <div id="status" class="status-pill small fw-bold text-muted"><span class="status-dot"></span>準備完了</div>
+                    <div id="status" class="status-pill small fw-bold text-muted"><span class="status-dot"></span>マイク未準備</div>
                     <button type="button" id="btnErrorDownload" class="btn btn-outline-primary btn-sm rounded-pill d-none">
                         <i class="bi bi-download me-1"></i>音声をダウンロード
                     </button>
@@ -922,6 +923,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let captureBackend = null;
     let captureFlushResolve = null;
     let lastLevelUiUpdate = 0;
+    let preparedNoiseOn = null;
+    let captureWorkletContext = null;
 
     function floatTo16BitPCM(float32Array, gain) {
         const g = (typeof gain === 'number' && isFinite(gain)) ? gain : 1;
@@ -1421,6 +1424,25 @@ document.addEventListener('DOMContentLoaded', () => {
         return stream;
     }
 
+    function assertMicProcessingVerified(noiseOn, stream) {
+        const mic = (stream && stream._sttMicSettings) || {};
+        if (mic.verified) return mic;
+        const fieldNames = {
+            echoCancellation: 'EC',
+            noiseSuppression: 'NS',
+            autoGainControl: 'AGC'
+        };
+        const failedFields = [...(mic.mismatches || []), ...(mic.unknown || [])]
+            .map(name => fieldNames[name] || name)
+            .join('/');
+        const error = new Error(
+            `ノイズ除去${noiseOn ? 'ON' : 'OFF'}を確認できないため録音を開始しません`
+            + (failedFields ? `（確認項目: ${failedFields}）` : '')
+        );
+        error.isMicProcessingVerificationError = true;
+        throw error;
+    }
+
     function appendCapturedPcm(chunk) {
         if (!chunk || !chunk.length) return;
         floatChunks.push(chunk);
@@ -1430,10 +1452,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function ensureCaptureWorkletModule(context) {
+        if (!context.audioWorklet || typeof AudioWorkletNode === 'undefined') return false;
+        if (captureWorkletContext !== context) {
+            await context.audioWorklet.addModule('/static/js/pcm-capture-worklet.js?v=2');
+            captureWorkletContext = context;
+        }
+        return true;
+    }
+
     async function createPcmCaptureNode(context, inputChannels) {
         if (context.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
             try {
-                await context.audioWorklet.addModule('/static/js/pcm-capture-worklet.js?v=2');
+                await ensureCaptureWorkletModule(context);
                 const node = new AudioWorkletNode(context, 'stt-pcm-capture', {
                     numberOfInputs: 1,
                     numberOfOutputs: 1,
@@ -1691,6 +1722,82 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function streamIsLive(stream) {
+        const track = stream && stream.getAudioTracks && stream.getAudioTracks()[0];
+        return !!track && track.readyState === 'live';
+    }
+
+    function releasePreparedMic() {
+        if (audioStream && !isRecording) stopStreamTracks(audioStream);
+        if (!isRecording) audioStream = null;
+        preparedNoiseOn = null;
+        if (!isRecording && audioContext) {
+            try { audioContext.close(); } catch (_) {}
+            audioContext = null;
+        }
+    }
+
+    async function prepareMic() {
+        if (isRecording) return;
+        const noiseOn = !!(el.noise && el.noise.checked);
+        if (preparedNoiseOn === noiseOn && streamIsLive(audioStream)) {
+            el.stat.innerText = `マイク準備完了（ノイズ除去 ${noiseOn ? 'ON' : 'OFF'}）`;
+            return;
+        }
+
+        releasePreparedMic();
+        el.stat.innerText = "マイク準備中...";
+        el.prepareMic.disabled = true;
+        el.recNew.disabled = true;
+        el.recAdd.disabled = true;
+        try {
+            await ensureAudioContextRunning();
+            try { await ensureCaptureWorkletModule(audioContext); } catch (error) {
+                console.warn('[STT AudioWorklet preload fallback]', error);
+            }
+            audioStream = await acquireMicStream(noiseOn);
+            assertMicProcessingVerified(noiseOn, audioStream);
+            preparedNoiseOn = noiseOn;
+            el.stat.innerText = `マイク準備完了（ノイズ除去 ${noiseOn ? 'ON' : 'OFF'}）`;
+            showToast('マイクの準備が完了しました');
+        } catch (error) {
+            releasePreparedMic();
+            el.stat.innerText = "マイク準備エラー";
+            if (error && error.isMicProcessingVerificationError) {
+                showMicProcessingErrorDialog(error.message || String(error));
+            } else {
+                showToast(error.message || String(error), true);
+            }
+        } finally {
+            el.prepareMic.disabled = false;
+            el.recNew.disabled = false;
+            el.recAdd.disabled = false;
+        }
+    }
+
+    if (el.prepareMic) el.prepareMic.addEventListener('click', prepareMic);
+    if (el.noise) {
+        el.noise.addEventListener('change', () => {
+            if (preparedNoiseOn === null) return;
+            releasePreparedMic();
+            el.stat.innerText = "ノイズ除去設定が変わったためマイク未準備";
+        });
+    }
+    const uploadTab = document.getElementById('upload-tab');
+    if (uploadTab) {
+        uploadTab.addEventListener('shown.bs.tab', () => {
+            if (preparedNoiseOn === null || isRecording) return;
+            releasePreparedMic();
+            el.stat.innerText = "待機中";
+        });
+    }
+    window.addEventListener('pagehide', () => {
+        if (audioStream) stopStreamTracks(audioStream);
+        if (audioContext) {
+            try { audioContext.close(); } catch (_) {}
+        }
+    });
+
     // 推論ボックス: Bootstrap Collapse の遷移ロックを避け、途中クリックで即反転
     const thinkingPanel = document.getElementById('collapseThinking');
     const thinkingBtn = document.getElementById('btnCollapse');
@@ -1717,6 +1824,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const el = {
         recNew: document.getElementById('btnRecordNew'), recAdd: document.getElementById('btnRecordAppend'),
+        prepareMic: document.getElementById('btnPrepareMic'),
         pause: document.getElementById('btnPause'), stop: document.getElementById('btnStop'), cancel: document.getElementById('btnCancel'),
         copy: document.getElementById('btnCopy'), fix: document.getElementById('btnFixSpacing'),
         correctRephrase: document.getElementById('btnCorrectRephrase'),
@@ -2197,7 +2305,7 @@ document.addEventListener('DOMContentLoaded', () => {
         hideErrorDownloadButton();
         lastLocalAudioBlob = null;
         lastLocalAudioName = null;
-        el.stat.innerText = "準備完了";
+        el.stat.innerText = "待機中";
     };
 
     // --- History Functions ---
@@ -2561,7 +2669,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function uploadFileSingle(file, append) {
         const model = getModel();
         const result = await ensureApiKeyForModel(model, false);
-        if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
+        if (!result.proceed) { el.stat.innerText = "待機中"; return; }
         const useModel = result.model;
         isAppendMode = append;
         rememberLocalAudio(file, file.name);
@@ -2627,7 +2735,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function uploadFileChunked(file, append) {
         const model = getModel();
         const result = await ensureApiKeyForModel(model, false);
-        if (!result.proceed) { btnUploadNew.disabled = btnUploadAppend.disabled = false; el.stat.innerText = "準備完了"; return; }
+        if (!result.proceed) { btnUploadNew.disabled = btnUploadAppend.disabled = false; el.stat.innerText = "待機中"; return; }
         const useModel = result.model;
         isAppendMode = append;
         rememberLocalAudio(file, file.name);
@@ -2760,10 +2868,13 @@ document.addEventListener('DOMContentLoaded', () => {
         isAppendMode=append;
         if(!append) clearResultUiForNew();
         el.copy.disabled=true; el.stat.innerText="準備中...";
-        if(audioStream) {
+        const noiseOn = !!(el.noise && el.noise.checked);
+        const usePreparedMic = preparedNoiseOn === noiseOn && streamIsLive(audioStream);
+        if(audioStream && !usePreparedMic) {
             audioStream.getTracks().forEach(track => track.stop());
             audioStream = null;
         }
+        preparedNoiseOn = null;
         teardownCaptureGraph();
         mediaRecorder = null;
         audioChunks = [];
@@ -2775,26 +2886,9 @@ document.addEventListener('DOMContentLoaded', () => {
             await ensureAudioContextRunning();
 
             // チェックON = ノイズ除去する / OFF = EC/NS/AGC/voice isolation をすべて切る
-            const noiseOn = !!(el.noise && el.noise.checked);
             recordNoiseSuppression = noiseOn;
-            audioStream = await acquireMicStream(noiseOn);
-            const verifiedMic = audioStream._sttMicSettings || {};
-            if (!verifiedMic.verified) {
-                const fieldNames = {
-                    echoCancellation: 'EC',
-                    noiseSuppression: 'NS',
-                    autoGainControl: 'AGC'
-                };
-                const failedFields = [...(verifiedMic.mismatches || []), ...(verifiedMic.unknown || [])]
-                    .map(name => fieldNames[name] || name)
-                    .join('/');
-                const verificationError = new Error(
-                    `ノイズ除去${noiseOn ? 'ON' : 'OFF'}を確認できないため録音を開始しません`
-                    + (failedFields ? `（確認項目: ${failedFields}）` : '')
-                );
-                verificationError.isMicProcessingVerificationError = true;
-                throw verificationError;
-            }
+            if (!usePreparedMic) audioStream = await acquireMicStream(noiseOn);
+            const verifiedMic = assertMicProcessingVerified(noiseOn, audioStream);
 
             // getUserMedia が長引くと suspended になりうる → 再確保
             const ctxState = await ensureAudioContextRunning();
@@ -2803,6 +2897,7 @@ document.addEventListener('DOMContentLoaded', () => {
             isRecording = true;
             isPaused = false;
             if (el.noise) el.noise.disabled = true;
+            if (el.prepareMic) el.prepareMic.disabled = true;
             recordFormat = document.querySelector('input[name="format"]:checked').value;
 
             // mic → inputGain → Analyser → AudioWorklet → MediaStreamDestination の直列グラフ
@@ -2904,6 +2999,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e){
             isRecording=false;
             if (el.noise) el.noise.disabled = false;
+            if (el.prepareMic) el.prepareMic.disabled = false;
             teardownCaptureGraph();
             if (audioStream) { audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
             el.stat.innerText="エラー";
@@ -2936,6 +3032,7 @@ document.addEventListener('DOMContentLoaded', () => {
     el.cancel.onclick=()=>{
         isRecording=false; isPaused=false;
         if (el.noise) el.noise.disabled = false;
+        if (el.prepareMic) el.prepareMic.disabled = false;
         if(mediaRecorder){ mediaRecorder.onstop = null; try { mediaRecorder.stop(); } catch(_){} mediaRecorder=null; }
         teardownCaptureGraph();
         if(audioStream){ audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
@@ -2951,6 +3048,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setCapturePaused(true);
         await flushCaptureNode();
         if (el.noise) el.noise.disabled = false;
+        if (el.prepareMic) el.prepareMic.disabled = false;
         el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
         el.pause.innerHTML='<i class="bi bi-pause-fill"></i>';
         el.stat.innerText="解析中...";
@@ -2993,7 +3091,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function upl(b,n){
         const model = getModel();
         const result = await ensureApiKeyForModel(model, true, b, n);
-        if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
+        if (!result.proceed) { el.stat.innerText = "待機中"; return; }
         const useModel = result.model;
         rememberLocalAudio(b, n);
         hideErrorDownloadButton();
@@ -3034,7 +3132,7 @@ document.addEventListener('DOMContentLoaded', () => {
     el.re.onclick=async()=>{
         const model = getModel();
         const result = await ensureApiKeyForModel(model, false);
-        if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
+        if (!result.proceed) { el.stat.innerText = "待機中"; return; }
         const useModel = result.model;
         isAppendMode=false;
         el.stat.innerText="再分析中...";
@@ -3109,7 +3207,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!t || !t.trim()) { showToast("テキストがありません", true); return; }
         const model = getModel();
         const result = await ensureApiKeyForModel(model, false);
-        if (!result.proceed) { el.stat.innerText = "準備完了"; return; }
+        if (!result.proceed) { el.stat.innerText = "待機中"; return; }
         const useModel = result.model;
         isAppendMode = false;
         el.stat.innerText = "言い直し修正中...";
