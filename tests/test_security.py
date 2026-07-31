@@ -290,16 +290,31 @@ class SecurityTests(unittest.TestCase):
         with open(template_path, encoding='utf-8') as template:
             source = template.read()
         recording = source[source.index('async function rec('):source.index('el.recNew.onclick')]
-        verification = recording.index('if (!verifiedMic.verified)')
+        verification = recording.index('assertMicProcessingVerified(noiseOn, audioStream)')
         recording_started = recording.index('isRecording = true')
         self.assertLess(verification, recording_started)
-        self.assertIn("を確認できないため録音を開始しません", recording)
-        self.assertIn('verificationError.isMicProcessingVerificationError = true', recording)
+        self.assertIn("を確認できないため録音を開始しません", source)
+        self.assertIn('error.isMicProcessingVerificationError = true', source)
         self.assertIn('showMicProcessingErrorDialog(e.message || String(e))', recording)
         self.assertIn('verified: state.verified', source)
         self.assertIn('id="micProcessingErrorModal"', source)
         self.assertIn('id="btnMicProcessingHelp"', source)
         self.assertIn('id="micProcessingHelp"', source)
+
+    def test_microphone_can_be_prepared_and_reused_before_recording(self):
+        template_path = os.path.join(
+            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
+        )
+        with open(template_path, encoding='utf-8') as template:
+            source = template.read()
+        preparation = source[source.index('async function prepareMic()'):source.index('// 推論ボックス')]
+        recording = source[source.index('async function rec('):source.index('el.recNew.onclick')]
+        self.assertIn('id="btnPrepareMic"', source)
+        self.assertIn('await ensureCaptureWorkletModule(audioContext)', preparation)
+        self.assertIn('audioStream = await acquireMicStream(noiseOn)', preparation)
+        self.assertIn('preparedNoiseOn = noiseOn', preparation)
+        self.assertIn('const usePreparedMic = preparedNoiseOn === noiseOn && streamIsLive(audioStream)', recording)
+        self.assertIn('if (!usePreparedMic) audioStream = await acquireMicStream(noiseOn)', recording)
 
     def test_mobile_recording_pins_the_built_in_microphone_by_exact_device_id(self):
         template_path = os.path.join(
