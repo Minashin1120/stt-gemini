@@ -2985,6 +2985,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const chanLabel = (inCh > 1)
                 ? '<span class="badge bg-info text-dark ms-1">2ch→モノミックス</span>'
                 : '<span class="badge bg-secondary ms-1">マイク入力: 1ch</span>';
+            const micName = (routing.selectedLabel || routing.requestedLabel || '').trim();
+            const micLabelBadge = micName
+                ? `<span class="badge bg-dark ms-1" title="${escapeHtml(micName)}">マイク: ${escapeHtml(micName.length > 14 ? micName.slice(0, 14) + '…' : micName)}</span>`
+                : '';
             let micRouteLabel = '';
             if (routing.mode === 'built-in-exact-verified') {
                 micRouteLabel = '<span class="badge bg-success ms-1">内蔵マイク: 固定確認</span>';
@@ -2993,7 +2997,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (routing.mobileTarget) {
                 micRouteLabel = '<span class="badge bg-warning text-dark ms-1">マイク: 端末既定</span>';
             }
-            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${micRouteLabel} ${noiseLabel} ${effLabel} ${agcLabel} ${ecLabel} ${fmtLabel} ${captureLabel} ${chanLabel}`;
+            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${micRouteLabel} ${noiseLabel} ${effLabel} ${agcLabel} ${ecLabel} ${fmtLabel} ${captureLabel} ${chanLabel} ${micLabelBadge}`;
             if (routing.warning) {
                 showToast(routing.warning, true);
             } else if (mismatch) {
