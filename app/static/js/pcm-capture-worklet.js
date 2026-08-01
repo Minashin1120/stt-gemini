@@ -41,12 +41,19 @@ class SttPcmCaptureProcessor extends AudioWorkletProcessor {
     }
 
     process(inputs, outputs) {
-        const input = inputs[0] && inputs[0][0];
+        const input = inputs[0];
         const output = outputs[0] && outputs[0][0];
+        const ch0 = input && input[0];
+        const ch1 = input && input[1];
 
-        if (input) {
-            if (!this.paused) this.append(input);
-            if (output) output.set(input);
+        if (ch0) {
+            let mono = ch0;
+            if (ch1) {
+                mono = new Float32Array(ch0.length);
+                for (let i = 0; i < ch0.length; i++) mono[i] = (ch0[i] + ch1[i]) * 0.5;
+            }
+            if (!this.paused) this.append(mono);
+            if (output) output.set(mono);
         } else if (output) {
             output.fill(0);
         }

@@ -1145,7 +1145,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function buildMicConstraintAttempts(noiseOn, supported, preferredDevice) {
         const common = {
-            channelCount: { ideal: 1 },
+            // 2ch(複数マイク)端末では両チャンネルを拾い、キャプチャ側でモノラルへダウンミックスする。
+            // モノラル端末では ideal のため従来どおりモノラルで取得される。
+            channelCount: { ideal: 2 },
             sampleRate: { ideal: 48000 },
             sampleSize: { ideal: 16 }
         };
@@ -1429,6 +1431,14 @@ document.addEventListener('DOMContentLoaded', () => {
         throw error;
     }
 
+    function downmixToMono(ch0, ch1) {
+        if (!ch0) return ch0;
+        if (!ch1) return ch0;
+        const out = new Float32Array(ch0.length);
+        for (let i = 0; i < out.length; i++) out[i] = (ch0[i] + ch1[i]) * 0.5;
+        return out;
+    }
+
     function appendCapturedPcm(chunk) {
         if (!chunk || !chunk.length) return;
         floatChunks.push(chunk);
@@ -1441,7 +1451,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function ensureCaptureWorkletModule(context) {
         if (!context.audioWorklet || typeof AudioWorkletNode === 'undefined') return false;
         if (captureWorkletContext !== context) {
-            await context.audioWorklet.addModule('/static/js/pcm-capture-worklet.js?v=2');
+            await context.audioWorklet.addModule('/static/js/pcm-capture-worklet.js?v=3');
             captureWorkletContext = context;
         }
         return true;
@@ -1455,7 +1465,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     numberOfInputs: 1,
                     numberOfOutputs: 1,
                     outputChannelCount: [1],
-                    channelCount: 1,
+                    channelCount: inputChannels,
                     channelCountMode: 'explicit'
                 });
                 node.port.onmessage = (event) => {
@@ -1478,10 +1488,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const node = context.createScriptProcessor(4096, inputChannels, 1);
         node.onaudioprocess = (event) => {
             if (isPaused) return;
-            const input = event.inputBuffer.getChannelData(0);
-            const copy = new Float32Array(input.length);
-            copy.set(input);
-            appendCapturedPcm(copy);
+            const ch0 = event.inputBuffer.getChannelData(0);
+            const ch1 = event.inputBuffer.numberOfChannels > 1
+                ? event.inputBuffer.getChannelData(1)
+                : null;
+            appendCapturedPcm(downmixToMono(ch0, ch1));
         };
         captureBackend = 'script-processor-fallback';
         return node;
@@ -2905,7 +2916,8 @@ document.addEventListener('DOMContentLoaded', () => {
             analyserNode = audioContext.createAnalyser();
             analyserNode.fftSize = 2048;
             analyserNode.smoothingTimeConstant = 0.25;
-            // 入力チャンネルはストリームに合わせる（ステレオ試行時も ch0 を使う）
+            // 入力チャンネルはストリームに合わせる（2ch時はワークレット/フォールバックで
+            // 両チャンネルを均等にダウンミックスしてモノラルに収束させる）
             const inCh = Math.min(2, Math.max(1, (audioStream.getAudioTracks()[0]
                 && audioStream.getAudioTracks()[0].getSettings
                 && audioStream.getAudioTracks()[0].getSettings().channelCount) || 1));
@@ -2970,6 +2982,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const captureLabel = captureBackend === 'audio-worklet'
                 ? '<span class="badge bg-success ms-1">安定録音</span>'
                 : '<span class="badge bg-warning text-dark ms-1">互換録音</span>';
+            const chanLabel = (inCh > 1)
+                ? '<span class="badge bg-info text-dark ms-1">2ch→モノミックス</span>'
+                : '';
             let micRouteLabel = '';
             if (routing.mode === 'built-in-exact-verified') {
                 micRouteLabel = '<span class="badge bg-success ms-1">内蔵マイク: 固定確認</span>';
@@ -2978,7 +2993,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (routing.mobileTarget) {
                 micRouteLabel = '<span class="badge bg-warning text-dark ms-1">マイク: 端末既定</span>';
             }
-            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${micRouteLabel} ${noiseLabel} ${effLabel} ${agcLabel} ${ecLabel} ${fmtLabel} ${captureLabel}`;
+            el.stat.innerHTML=`<span class="recording-indicator">● 録音中...</span> ${micRouteLabel} ${noiseLabel} ${effLabel} ${agcLabel} ${ecLabel} ${fmtLabel} ${captureLabel} ${chanLabel}`;
             if (routing.warning) {
                 showToast(routing.warning, true);
             } else if (mismatch) {
