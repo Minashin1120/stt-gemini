@@ -138,7 +138,6 @@
                             <div class="btn-group" role="group"><input type="radio" class="btn-check" name="format" id="fmt_mp3" value="mp3" checked><label class="btn btn-outline-secondary btn-sm" for="fmt_mp3">MP3</label><input type="radio" class="btn-check" name="format" id="fmt_wav" value="wav"><label class="btn btn-outline-secondary btn-sm" for="fmt_wav">WAV</label></div>
                             <div class="vr"></div>
                             <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="noiseSuppression" checked><label class="form-check-label small ms-1" for="noiseSuppression">ノイズ除去</label></div>
-                            <button type="button" id="btnPrepareMic" class="btn btn-outline-primary btn-sm rounded-pill"><i class="bi bi-mic me-1"></i>マイクを準備</button>
                         </div>
                         <div class="d-flex justify-content-center flex-wrap gap-2 mb-2">
                             <button id="btnRecordNew" class="btn btn-danger btn-lg rounded-pill px-4 primary-record-action"><i class="bi bi-mic-fill"></i> 新規録音</button>
@@ -1756,7 +1755,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         releasePreparedMic();
         el.stat.innerText = "マイク準備中...";
-        el.prepareMic.disabled = true;
         el.recNew.disabled = true;
         el.recAdd.disabled = true;
         try {
@@ -1778,7 +1776,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast(error.message || String(error), true);
             }
         } finally {
-            el.prepareMic.disabled = false;
             el.recNew.disabled = false;
             el.recAdd.disabled = false;
         }
@@ -1810,7 +1807,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const el = {
         recNew: document.getElementById('btnRecordNew'), recAdd: document.getElementById('btnRecordAppend'),
-        prepareMic: document.getElementById('btnPrepareMic'),
         pause: document.getElementById('btnPause'), stop: document.getElementById('btnStop'), cancel: document.getElementById('btnCancel'),
         copy: document.getElementById('btnCopy'), fix: document.getElementById('btnFixSpacing'),
         correctRephrase: document.getElementById('btnCorrectRephrase'),
@@ -1825,12 +1821,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // el の初期化後に登録する。これより前に el を参照すると
     // DOMContentLoaded 全体が ReferenceError で停止し、録音ボタンと設定復元が動かなくなる。
-    if (el.prepareMic) el.prepareMic.addEventListener('click', prepareMic);
     if (el.noise) {
         el.noise.addEventListener('change', () => {
-            if (preparedNoiseOn === null) return;
-            releasePreparedMic();
-            el.stat.innerText = "ノイズ除去設定が変わったためマイク未準備";
+            if (isRecording) return;
+            prepareMic();
         });
     }
     const uploadTab = document.getElementById('upload-tab');
@@ -2210,8 +2204,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePostprocessBar();
     syncThinkDropdown();
 
-    // サイトアクセス時にマイクを事前取得・検証（録音タブ表示中のみ・失敗時は手動準備にフォールバック）
-    if (el.prepareMic && !isRecording) {
+    // サイトアクセス時にマイクを事前取得・検証（録音タブ表示中のみ・失敗時は再試行可能）
+    if (!isRecording) {
         const recordTab = document.getElementById('record-tab');
         if (!recordTab || recordTab.classList.contains('active')) prepareMic();
     }
@@ -2914,7 +2908,6 @@ document.addEventListener('DOMContentLoaded', () => {
             isRecording = true;
             isPaused = false;
             if (el.noise) el.noise.disabled = true;
-            if (el.prepareMic) el.prepareMic.disabled = true;
             recordFormat = document.querySelector('input[name="format"]:checked').value;
 
             // mic → inputGain → Analyser → AudioWorklet → MediaStreamDestination の直列グラフ
@@ -3024,7 +3017,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e){
             isRecording=false;
             if (el.noise) el.noise.disabled = false;
-            if (el.prepareMic) el.prepareMic.disabled = false;
             teardownCaptureGraph();
             if (audioStream) { audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
             el.stat.innerText="エラー";
@@ -3057,7 +3049,6 @@ document.addEventListener('DOMContentLoaded', () => {
     el.cancel.onclick=()=>{
         isRecording=false; isPaused=false;
         if (el.noise) el.noise.disabled = false;
-        if (el.prepareMic) el.prepareMic.disabled = false;
         if(mediaRecorder){ mediaRecorder.onstop = null; try { mediaRecorder.stop(); } catch(_){} mediaRecorder=null; }
         teardownCaptureGraph();
         if(audioStream){ audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
@@ -3073,7 +3064,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setCapturePaused(true);
         await flushCaptureNode();
         if (el.noise) el.noise.disabled = false;
-        if (el.prepareMic) el.prepareMic.disabled = false;
         el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
         el.pause.innerHTML='<i class="bi bi-pause-fill"></i>';
         el.stat.innerText="解析中...";
