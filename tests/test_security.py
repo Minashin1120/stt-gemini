@@ -315,6 +315,11 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('preparedNoiseOn = noiseOn', preparation)
         self.assertIn('const usePreparedMic = preparedNoiseOn === noiseOn && streamIsLive(audioStream)', recording)
         self.assertIn('if (!usePreparedMic) audioStream = await acquireMicStream(noiseOn)', recording)
+        el_initialized = source.index('const el = {')
+        prepare_handler_registered = source.index("if (el.prepareMic) el.prepareMic.addEventListener('click', prepareMic)")
+        noise_handler_registered = source.index("el.noise.addEventListener('change', () => {")
+        self.assertLess(el_initialized, prepare_handler_registered)
+        self.assertLess(el_initialized, noise_handler_registered)
 
     def test_mobile_recording_pins_the_built_in_microphone_by_exact_device_id(self):
         template_path = os.path.join(
