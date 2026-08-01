@@ -1775,29 +1775,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    if (el.prepareMic) el.prepareMic.addEventListener('click', prepareMic);
-    if (el.noise) {
-        el.noise.addEventListener('change', () => {
-            if (preparedNoiseOn === null) return;
-            releasePreparedMic();
-            el.stat.innerText = "ノイズ除去設定が変わったためマイク未準備";
-        });
-    }
-    const uploadTab = document.getElementById('upload-tab');
-    if (uploadTab) {
-        uploadTab.addEventListener('shown.bs.tab', () => {
-            if (preparedNoiseOn === null || isRecording) return;
-            releasePreparedMic();
-            el.stat.innerText = "待機中";
-        });
-    }
-    window.addEventListener('pagehide', () => {
-        if (audioStream) stopStreamTracks(audioStream);
-        if (audioContext) {
-            try { audioContext.close(); } catch (_) {}
-        }
-    });
-
     // 推論ボックス: Bootstrap Collapse の遷移ロックを避け、途中クリックで即反転
     const thinkingPanel = document.getElementById('collapseThinking');
     const thinkingBtn = document.getElementById('btnCollapse');
@@ -1836,6 +1813,31 @@ document.addEventListener('DOMContentLoaded', () => {
         hist: document.getElementById('historyContainer'), reset: document.getElementById('btnReset'),
         abort: document.getElementById('btnAbort')
     };
+
+    // el の初期化後に登録する。これより前に el を参照すると
+    // DOMContentLoaded 全体が ReferenceError で停止し、録音ボタンと設定復元が動かなくなる。
+    if (el.prepareMic) el.prepareMic.addEventListener('click', prepareMic);
+    if (el.noise) {
+        el.noise.addEventListener('change', () => {
+            if (preparedNoiseOn === null) return;
+            releasePreparedMic();
+            el.stat.innerText = "ノイズ除去設定が変わったためマイク未準備";
+        });
+    }
+    const uploadTab = document.getElementById('upload-tab');
+    if (uploadTab) {
+        uploadTab.addEventListener('shown.bs.tab', () => {
+            if (preparedNoiseOn === null || isRecording) return;
+            releasePreparedMic();
+            el.stat.innerText = "待機中";
+        });
+    }
+    window.addEventListener('pagehide', () => {
+        if (audioStream) stopStreamTracks(audioStream);
+        if (audioContext) {
+            try { audioContext.close(); } catch (_) {}
+        }
+    });
 
     function rememberLocalAudio(blobOrFile, name) {
         if (!blobOrFile) return;
