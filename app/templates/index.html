@@ -25,15 +25,6 @@
     .cursor-pointer { pointer: pointer; }
 </style>
 
-<div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 2000">
-    <div id="liveToast" class="toast align-items-center text-white bg-dark border-0" role="alert" aria-live="assertive" aria-atomic="true">
-        <div class="d-flex">
-            <div class="toast-body" id="toastMessage"></div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-        </div>
-    </div>
-</div>
-
 <!-- モーダル類 -->
 <div class="modal fade" id="deleteModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5>音声破棄</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">音声を削除しますか？<br><small class="text-danger">再分析不可になります。</small></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-danger" id="confirmDeleteBtn">削除</button></div></div></div></div>
 
