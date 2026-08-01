@@ -2200,7 +2200,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     updatePostprocessBar();
     syncThinkDropdown();
-    
+
+    // サイトアクセス時にマイクを事前取得・検証（録音タブ表示中のみ・失敗時は手動準備にフォールバック）
+    if (el.prepareMic && !isRecording) {
+        const recordTab = document.getElementById('record-tab');
+        if (!recordTab || recordTab.classList.contains('active')) prepareMic();
+    }
+
     el.think.addEventListener('change', saveSet);
     if(el.noise) el.noise.addEventListener('change', saveSet);
     if(el.rephrase) el.rephrase.addEventListener('change', saveSet);
