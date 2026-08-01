@@ -1167,6 +1167,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const attempts = [];
+        // 一部の端末は channelCount を ideal 指定だとモノラルで応答するが、
+        // exact 指定ならステレオを返せる。ステレオが取れれば両マイクを
+        // ダウンミックスして録音できるため、最初に必須指定で試す。
+        // 対応しない端末は OverconstrainedError で即フォールバックする。
+        if (supported.channelCount) {
+            attempts.push({
+                label: 'stereo-exact',
+                strict: false,
+                fullyStrict: false,
+                constraints: { ...relaxed, ...common, channelCount: { exact: 2 } }
+            });
+        }
         // 2024年以降の一部Chrome/Androidは複数の exact:false を拒否する報告がある。
         // さらに、全項目を exact でまとめると、どれか一つが変更不能な端末でセット全体が
         // reject される。そこで OFF は EC 単独、NS 単独、全項目、通常指定の順で試す。
