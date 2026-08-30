@@ -372,15 +372,19 @@ import subprocess
 import shutil
 from email.mime.text import MIMEText
 
+# Turnstile検証はログイン等のクリティカルパスで毎回呼ばれるため、
+# HTTP接続を再利用するセッションを使用してレイテンシを短縮する。
+_turnstile_session = requests.Session()
+
 def verify_turnstile(token):
     secret = os.getenv('TURNSTILE_SECRET_KEY')
     if not secret or not token:
         return False
     try:
-        res = requests.post(
+        res = _turnstile_session.post(
             'https://challenges.cloudflare.com/turnstile/v0/siteverify',
             data={'secret': secret, 'response': token},
-            timeout=10
+            timeout=5
         )
         return res.json().get('success', False)
     except:
@@ -689,10 +693,8 @@ def login():
         if not check_rate_limit('login', 5, 60):
             flash('試行回数が多すぎます。しばらく経ってから再度お試しください。')
             return redirect(url_for('login'))
+
         turnstile_token = request.form.get('cf-turnstile-response')
-        if not verify_turnstile(turnstile_token):
-            flash('ロボットではないことを証明してください。')
-            return redirect(url_for('login'))
 
         # フォーム表示からの経過時間をチェック
         load_time = session.pop('_form_load_time', 0)
@@ -712,6 +714,15 @@ def login():
             flash('ログイン失敗。')
             return redirect(url_for('login'))
 
+        # Turnstile検証(ネットワークI/O)とパスワード検証(scrypt計算)を並行実行し、
+        # ログイン成功〜リダイレクトまでの応答時間を短縮する。
+        # どちらも認証結果に必須のため、両方の完了を待ってから判定する。
+        turnstile_result = {}
+        def _verify_turnstile_async():
+            turnstile_result['ok'] = verify_turnstile(turnstile_token)
+        turnstile_thread = threading.Thread(target=_verify_turnstile_async, daemon=True)
+        turnstile_thread.start()
+
         user = User.query.filter_by(username=username).first()
 
         # 定数時間比較: ユーザーが存在しない場合もダミーハッシュで比較し、タイミング差をなくす
@@ -722,18 +733,31 @@ def login():
             dummy_hash = generate_password_hash('dummy_value_for_timing')
             check_password_hash(dummy_hash, password)
             password_valid = False
-        
+
+        turnstile_thread.join()
+        turnstile_ok = turnstile_result.get('ok', False)
+
+        if not turnstile_ok:
+            flash('ロボットではないことを証明してください。')
+            return redirect(url_for('login'))
+
+        # 元の実装と同様に、まずパスワード検証の成否を優先する
+        # (ロック状態は正しいパスワードを知るユーザーにのみ開示する)
         if not password_valid:
             flash('ログイン失敗。')
-        elif user.is_locked:
+            # フォーム表示時刻を再記録して再表示（失敗後も連続送信が弾かれないようにする）
+            session['_form_load_time'] = time.time()
+            return render_template('login.html')
+
+        if user.is_locked:
             flash('アカウントがロックされています。解除が必要な場合は下記から申請してください。')
             return redirect(url_for('login'))
-        else:
-            session.clear()
-            login_user(user, remember=True)
-            session['csrf_token'] = secrets.token_urlsafe(32)
-            session.permanent = True
-            return redirect(url_for('index'))
+
+        session.clear()
+        login_user(user, remember=True)
+        session['csrf_token'] = secrets.token_urlsafe(32)
+        session.permanent = True
+        return redirect(url_for('index'))
     
     # フォーム表示時刻を記録
     session['_form_load_time'] = time.time()
