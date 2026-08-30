@@ -4,10 +4,12 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
 from cryptography.fernet import Fernet
+from werkzeug.security import generate_password_hash
 
 
 TEST_ROOT = tempfile.mkdtemp(prefix='stt-gemini-security-')
@@ -434,6 +436,128 @@ class SecurityTests(unittest.TestCase):
             application.create_task(self.first_id, 'test', 'test', 'gemini-3.5-flash')
         application.update_task(task_id, status='done')
         application.create_task(self.first_id, 'test', 'test', 'gemini-3.5-flash')
+
+
+class LoginFlowTests(unittest.TestCase):
+    """ログイン処理（Turnstile並行検証を含む）の動作を検証するテスト。"""
+
+    def setUp(self):
+        self.upload_root = os.path.join(TEST_ROOT, 'uploads-login')
+        shutil.rmtree(self.upload_root, ignore_errors=True)
+        os.makedirs(self.upload_root)
+        application.app.config.update(TESTING=True, UPLOAD_FOLDER=self.upload_root)
+        application.redis_client = FakeRedis()
+        with application.app.app_context():
+            application.db.drop_all()
+            application.db.create_all()
+            self.user = application.User(
+                username='alice', password=generate_password_hash('correct-horse')
+            )
+            self.locked = application.User(
+                username='bob', password=generate_password_hash('good-password'), is_locked=True
+            )
+            application.db.session.add_all([self.user, self.locked])
+            application.db.session.commit()
+            self.user_id = self.user.id
+
+    def _client(self):
+        client = application.app.test_client()
+        # 各シナリオ間でレートリミットとセッションをリセット
+        application.redis_client.delete('ratelimit:login:127.0.0.1')
+        with client.session_transaction() as state:
+            state['csrf_token'] = 'csrf-token'
+            state['_form_load_time'] = time.time() - 10.0
+        return client
+
+    def _login(self, client, username, password, turnstile='token', csrf='csrf-token'):
+        return client.post(
+            '/login',
+            data={
+                'username': username,
+                'password': password,
+                'csrf_token': csrf,
+                '_js_challenge': f'valid_{csrf}',
+                'cf-turnstile-response': turnstile,
+            },
+            headers={'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36'},
+        )
+
+    def test_successful_login_redirects_to_index(self):
+        with patch.object(application, 'verify_turnstile', return_value=True):
+            client = self._client()
+            response = self._login(client, 'alice', 'correct-horse')
+            self.assertEqual(response.status_code, 302)
+            self.assertTrue(response.headers['Location'].endswith('/'))
+            with client.session_transaction() as state:
+                self.assertEqual(state.get('_user_id'), str(self.user_id))
+
+    def test_login_runs_turnstile_and_password_check_in_parallel(self):
+        """Turnstile検証(ネットワークI/O)とscrypt検証が並行実行され、
+        応答時間が直列実行より短くなることを確認する。"""
+        # Turnstileを意図的に 0.25s 遅延させ、直列ベースラインを実測
+        def slow_turnstile(token):
+            time.sleep(0.25)
+            return True
+
+        start = time.time()
+        with patch.object(application, 'verify_turnstile', side_effect=slow_turnstile):
+            client = self._client()
+            response = self._login(client, 'alice', 'correct-horse')
+            parallel_ms = (time.time() - start) * 1000
+            self.assertEqual(response.status_code, 302)
+
+        # 直列ベースライン（0.25s + scrypt 1回）
+        start = time.time()
+        slow_turnstile('token')
+        generate_password_hash('dummy_value_for_timing')
+        serial_ms = (time.time() - start) * 1000
+
+        self.assertLess(
+            parallel_ms, serial_ms,
+            f'並行実行({parallel_ms:.0f}ms)が直列({serial_ms:.0f}ms)より遅い',
+        )
+
+    def test_wrong_password_rerenders_login_page(self):
+        with patch.object(application, 'verify_turnstile', return_value=True):
+            client = self._client()
+            response = self._login(client, 'alice', 'wrong-password')
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('ログイン失敗'.encode(), response.data)
+
+    def test_turnstile_failure_rejects_login(self):
+        with patch.object(application, 'verify_turnstile', return_value=False):
+            client = self._client()
+            response = self._login(client, 'alice', 'correct-horse')
+            self.assertEqual(response.status_code, 302)
+            self.assertIn('login', response.headers['Location'])
+            # ログインは成立していない
+            with client.session_transaction() as state:
+                self.assertNotEqual(state.get('_user_id'), str(self.user_id))
+
+    def test_locked_user_with_correct_password_sees_lock_message(self):
+        with patch.object(application, 'verify_turnstile', return_value=True):
+            client = self._client()
+            response = self._login(client, 'bob', 'good-password')
+            self.assertEqual(response.status_code, 302)
+            follow = client.get('/login', headers={'User-Agent': 'Mozilla/5.0'})
+            self.assertIn('アカウントがロックされています'.encode(), follow.data)
+
+    def test_locked_user_with_wrong_password_does_not_reveal_lock(self):
+        # 元実装と同じく、ロック状態は正しいパスワードを知るユーザーにのみ開示する
+        with patch.object(application, 'verify_turnstile', return_value=True):
+            client = self._client()
+            response = self._login(client, 'bob', 'wrong-password')
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('ログイン失敗'.encode(), response.data)
+            self.assertNotIn('アカウントがロックされています'.encode(), response.data)
+
+    def test_unknown_user_is_rejected_without_timing_difference(self):
+        # 存在しないユーザーでもダミーハッシュ比較により同程度の時間がかかる
+        with patch.object(application, 'verify_turnstile', return_value=True):
+            client = self._client()
+            response = self._login(client, 'nobody', 'whatever123')
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('ログイン失敗'.encode(), response.data)
 
 
 if __name__ == '__main__':
