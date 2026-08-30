@@ -32,14 +32,19 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI')
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MBまで単一アップロード、超えると分割
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=1)
+# セッション/Remember Me クッキーは 30 日間保持。
+# 以前は 1 日だったため、利用間隔が空くと自動ログアウトしていた（Windows Chrome 等で顕在化）。
+# SESSION_REFRESH_EACH_REQUEST により、アクティブ利用中はセッションクッキーの期限が毎回延長される。
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 app.config['REMEMBER_COOKIE_SECURE'] = True
 app.config['REMEMBER_COOKIE_HTTPONLY'] = True
 app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
-app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=1)
+app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)
+app.config['REMEMBER_COOKIE_REFRESH_EACH_REQUEST'] = True
 
 MAX_GEMINI_AUDIO_BYTES = 100 * 1024 * 1024
 MAX_XAI_AUDIO_BYTES = 500 * 1024 * 1024
@@ -615,6 +620,7 @@ def register():
             flash('ユーザー名が重複しています。')
             return redirect(url_for('register'))
         login_user(new_user, remember=True)
+        session.permanent = True
         return redirect(url_for('settings'))
     
     # フォーム表示時刻を記録
