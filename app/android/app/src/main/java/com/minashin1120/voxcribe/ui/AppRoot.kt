@@ -25,8 +25,10 @@ import com.minashin1120.voxcribe.ui.common.ToastHost
 import com.minashin1120.voxcribe.ui.settings.SettingsScreen
 import com.minashin1120.voxcribe.ui.theme.LocalAppTheme
 import com.minashin1120.voxcribe.ui.theme.Themes
+import com.minashin1120.voxcribe.ui.update.UpdateDialog
 import com.minashin1120.voxcribe.ui.welcome.WelcomeScreen
 import com.minashin1120.voxcribe.ui.workspace.WorkspaceScreen
+import java.io.File
 
 /** 現在のテーマキー（設定画面で即時プレビューできるよう状態として保持） */
 object ThemeState {
@@ -34,12 +36,13 @@ object ThemeState {
 }
 
 @Composable
-fun AppRoot(onRequestPermissions: () -> Unit) {
+fun AppRoot(onRequestPermissions: () -> Unit, onInstallUpdate: (File) -> Unit) {
     val app = VoxcribeApp.instance
     val theme = Themes.of(ThemeState.key)
     var screen by rememberSaveable { mutableStateOf(if (app.prefs.welcomeSeen) "workspace" else "welcome") }
 
     LaunchedEffect(Unit) { onRequestPermissions() }
+    LaunchedEffect(Unit) { app.updates.checkOnStart() }
 
     val scheme = if (theme.isDark) darkColorScheme(primary = theme.primary, background = theme.bg, surface = theme.cardBg)
     else lightColorScheme(primary = theme.primary, background = theme.bg, surface = if (theme.cardBg.alpha < 1f) androidx.compose.ui.graphics.Color.White else theme.cardBg)
@@ -68,6 +71,7 @@ fun AppRoot(onRequestPermissions: () -> Unit) {
                         }
                     }
                     app.workspace.confirm?.let { req -> ConfirmDialog(req) { app.workspace.confirm = null } }
+                    UpdateDialog(onInstall = onInstallUpdate)
                     ToastHost(app.toaster)
                 }
             }
