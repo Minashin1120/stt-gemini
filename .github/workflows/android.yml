@@ -92,7 +92,22 @@ jobs:
             -alias androiddebugkey
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+
+      # ビルド失敗時、原因をアノテーションとして出力（ログを開かなくても確認できるようにする）
+      - name: Report build errors
+        if: failure()
+        run: |
+          [ -f build.log ] || exit 0
+          grep -E "^e: |error:|What went wrong|Could not|> " build.log | grep -v "^> Task" | head -120 > errors.txt || true
+          split -l 12 errors.txt err_part_ || true
+          for f in err_part_*; do
+            [ -f "$f" ] || continue
+            msg=$(sed -e 's/%/%25/g' "$f" | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Build error::${msg}"
+          done
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v7
