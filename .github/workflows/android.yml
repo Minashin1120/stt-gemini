@@ -1,0 +1,122 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    paths:
+      - 'app/android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [ main, master, develop ]
+    paths:
+      - 'app/android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+defaults:
+  run:
+    working-directory: app/android
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Create fixed debug keystore if missing
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p ci
+
+          if [ -s ci/debug.keystore ]; then
+            echo "Using existing fixed ci/debug.keystore"
+            exit 0
+          fi
+
+          echo "ci/debug.keystore is missing. Generating it once..."
+
+          keytool -genkeypair -v \
+            -keystore ci/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -f ci/debug.keystore
+          git commit -m "ci: add fixed shared debug keystore"
+          git push
+
+      - name: Verify fixed debug keystore
+        run: |
+          if [ ! -s ci/debug.keystore ]; then
+            echo "ERROR: app/android/ci/debug.keystore not found or empty"
+            echo "Run Android CI on the default development branch once to bootstrap the fixed keystore."
+            exit 1
+          fi
+
+          mkdir -p ~/.android
+          cp ci/debug.keystore ~/.android/debug.keystore
+
+          keytool -list -v \
+            -keystore ci/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-debug
+          path: app/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      # 最新ビルドのAPKだけを残し、過去のAPK artifactを削除してActionsストレージの満杯を防ぐ
+      - name: Delete previous APK artifacts
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const names = new Set(['app-debug', 'app-release-signed']);
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
+            );
+            for (const a of artifacts) {
+              if (!names.has(a.name) || a.expired) continue;
+              if (a.workflow_run && a.workflow_run.id === context.runId) continue;
+              core.info(`Deleting artifact ${a.name} (#${a.id}) from run ${a.workflow_run ? a.workflow_run.id : '?'}`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner, repo: context.repo.repo, artifact_id: a.id
+              });
+            }
