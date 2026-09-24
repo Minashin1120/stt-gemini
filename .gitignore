@@ -54,3 +54,12 @@ opencode.sh
 
 # Documentation
 mobile_chrome_noise_suppression_fix.md
+
+# Android (app/android) build outputs
+app/android/.gradle/
+app/android/.kotlin/
+app/android/build/
+app/android/app/build/
+app/android/local.properties
+*.iml
+!app/android/ci/debug.keystore
