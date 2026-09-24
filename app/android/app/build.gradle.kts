@@ -5,6 +5,17 @@ plugins {
 
 val ciRunNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toIntOrNull() ?: 1
 
+// versionCode はビルド時刻（2026-01-01 UTC からの経過分）。GITHUB_RUN_NUMBER は workflow ごとに
+// 別カウントのため、debug（Android CI）と release（Release Build）の両方で単調増加させる。
+val buildVersionCode = ((System.currentTimeMillis() - 1_767_225_600_000L) / 60_000L).toInt()
+
+// release.yml が渡すタグ（vX.Y.Z）。指定時は versionName をタグと一致させる。
+val releaseTag = System.getenv("RELEASE_TAG")?.trim()?.takeIf { it.isNotEmpty() }
+val releaseVersionName = releaseTag?.let { tag ->
+    Regex("""^v(\d+\.\d+\.\d+)$""").matchEntire(tag)?.groupValues?.get(1)
+        ?: throw GradleException("RELEASE_TAG must be vX.Y.Z (got: $tag)")
+}
+
 android {
     namespace = "com.minashin1120.voxcribe"
     compileSdk = 37
@@ -13,8 +24,8 @@ android {
         applicationId = "com.minashin1120.voxcribe"
         minSdk = 29
         targetSdk = 36
-        versionCode = ciRunNumber
-        versionName = "1.0.$ciRunNumber"
+        versionCode = buildVersionCode
+        versionName = releaseVersionName ?: "0.0.$ciRunNumber-debug"
     }
 
     signingConfigs {

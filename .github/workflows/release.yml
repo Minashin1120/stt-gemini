@@ -68,6 +68,8 @@ jobs:
             -alias androiddebugkey
 
       - name: Build signed Release APK
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name || github.ref_name }}
         run: ./gradlew assembleRelease --stacktrace
 
       - name: Verify APK exists
