@@ -200,7 +200,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
 
     // ================= 設定変更 =================
 
-    fun setModel(value: String) {
+    fun selectModel(value: String) {
         prefs.setThinkingFor(model, thinking)
         model = value
         prefs.model = value
@@ -1109,7 +1109,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
 
     fun akPickModel(value: String) {
         val p = apiKeyPrompt ?: return
-        setModel(value)
+        selectModel(value)
         apiKeyPrompt = null
         p.result.complete(true to value)
     }

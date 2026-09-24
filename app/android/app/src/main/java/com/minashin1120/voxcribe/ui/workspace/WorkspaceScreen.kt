@@ -227,7 +227,7 @@ private fun InputCard(ctrl: WorkspaceController) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column {
                     LabelWithIcon("モデル")
-                    CustomSelect(Models.ALL.map { it.value to it.label }, ctrl.model, { ctrl.setModel(it) })
+                    CustomSelect(Models.ALL.map { it.value to it.label }, ctrl.model, { ctrl.selectModel(it) })
                 }
                 Column {
                     LabelWithIcon("推論レベル")
