@@ -4,6 +4,8 @@ Google Gemini（3.5 Flash / 3.0 Flash Preview / 3.1 Flash-Lite）の思考プロ
 
 本番ドメイン例: `https://stt-gemini.minashin1120.com`（Apache リバースプロキシ + Gunicorn）
 
+同じUI・機能の **Android 版（Kotlin / Jetpack Compose、サーバー非依存のスタンドアロンアプリ）** を [`app/android/`](app/android/README.md) に同梱しています。APK は GitHub Actions でのみビルドします（ローカルビルド禁止）。
+
 ---
 
 ## 目次
