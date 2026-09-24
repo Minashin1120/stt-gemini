@@ -9,6 +9,7 @@ import com.minashin1120.voxcribe.data.SecretStore
 import com.minashin1120.voxcribe.task.RetentionCleaner
 import com.minashin1120.voxcribe.ui.common.Toaster
 import com.minashin1120.voxcribe.ui.workspace.WorkspaceController
+import com.minashin1120.voxcribe.update.UpdateController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,7 @@ class VoxcribeApp : Application() {
     lateinit var runner: AiRunner
     lateinit var toaster: Toaster
     lateinit var workspace: WorkspaceController
+    lateinit var updates: UpdateController
 
     override fun onCreate() {
         super.onCreate()
@@ -33,6 +35,7 @@ class VoxcribeApp : Application() {
         runner = AiRunner(db, prefs, secrets, audio)
         toaster = Toaster()
         workspace = WorkspaceController(this)
+        updates = UpdateController(this)
         RetentionCleaner.start(this)
     }
 
