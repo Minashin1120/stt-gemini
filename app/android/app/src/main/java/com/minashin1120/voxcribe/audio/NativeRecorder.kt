@@ -1,6 +1,7 @@
 package com.minashin1120.voxcribe.audio
 
 import android.annotation.SuppressLint
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -52,6 +53,12 @@ class NativeRecorder(private val cacheDir: File) {
     /** ビジュアライザー用: 直近ブロックのモノラルサンプル */
     @Volatile var onBlock: ((FloatArray) -> Unit)? = null
 
+    /** 録音開始後に実際にルーティングされた入力が内蔵マイクか（取得できない端末は null） */
+    @Volatile var routedToBuiltIn: Boolean? = null
+        private set
+    private var preferred: AudioDeviceInfo? = null
+    private var routingListener: android.media.AudioRouting.OnRoutingChangedListener? = null
+
     /**
      * マイクを初期化し、ノイズ除去スイッチと実効設定が一致するか検証する。
      * 一致しない場合は MicProcessingException を投げる（Web版 assertMicProcessingVerified 相当）。
@@ -94,6 +101,8 @@ class NativeRecorder(private val cacheDir: File) {
             r?.release()
         }
         if (rec == null) throw MicProcessingException("マイクを初期化できませんでした")
+        // Bluetooth・有線イヤフォン等が接続されていても内蔵マイクで録音する
+        preferred = mic.device
         mic.device?.let { rec.setPreferredDevice(it) }
 
         // エフェクト: ON=NS+AGC、OFF=すべて無効
@@ -155,6 +164,8 @@ class NativeRecorder(private val cacheDir: File) {
         paused = false
         running = true
         rec.startRecording()
+        routedToBuiltIn = null
+        pinBuiltIn(rec)
         thread = Thread({
             val frames = 4096
             val buf = FloatArray(frames * ch)
@@ -202,7 +213,25 @@ class NativeRecorder(private val cacheDir: File) {
         rawFile = null
     }
 
+    /**
+     * 実際の入力先が内蔵マイクかを確認する（録音中に Bluetooth 機器が接続された場合も追跡）。
+     * 内蔵マイクの指定（setPreferredDevice）は録音中も保持される。
+     */
+    private fun pinBuiltIn(rec: AudioRecord) {
+        if (preferred == null) return
+        fun check(r: android.media.AudioRouting) {
+            val routed = r.routedDevice ?: return
+            routedToBuiltIn = routed.type == AudioDeviceInfo.TYPE_BUILTIN_MIC
+        }
+        check(rec)
+        val l = android.media.AudioRouting.OnRoutingChangedListener { check(it) }
+        routingListener = l
+        rec.addOnRoutingChangedListener(l, null)
+    }
+
     fun release() {
+        routingListener?.let { l -> try { record?.removeOnRoutingChangedListener(l) } catch (_: Exception) {} }
+        routingListener = null
         releaseEffects()
         try { record?.release() } catch (_: Exception) {}
         record = null

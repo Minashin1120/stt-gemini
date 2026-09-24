@@ -319,8 +319,10 @@ class WorkspaceController(private val app: VoxcribeApp) {
                 status = recordingStatus(settings, noiseOn, full = true)
                 val info = micInfo
                 when {
+                    info != null && info.externalConnected && recorder.routedToBuiltIn == false ->
+                        toast.show("端末が外部マイクへの切り替えを優先したため、内蔵マイクに固定できませんでした。通話中などは Bluetooth 機器を切断してください", true)
                     info != null && info.externalConnected ->
-                        toast.show("イヤフォン等の外部マイクが接続されています。内蔵マイクで録音するには切断してください", true)
+                        toast.show("Bluetooth・イヤフォン等が接続されていますが、内蔵マイクで録音します")
                     !noiseOn && settings.processingFullyOff -> toast.show("録音開始（端末音声処理OFFを確認）")
                     else -> toast.show(if (noiseOn) "録音開始（ノイズ除去ON）" else "録音開始（ノイズ除去OFF）")
                 }
