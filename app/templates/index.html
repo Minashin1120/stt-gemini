@@ -2983,6 +2983,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function rec(append=false) {
+        // Grok Liveは録音開始直後からAPIキーが必要。ほかのモデルと同じ停止時確認では、
+        // キー未設定・不正時に録音中のリアルタイム字幕を復旧できないため先に確認する。
+        if (getModel() === 'grok-live-transcribe') {
+            const keyResult = await ensureApiKeyForModel(getModel(), false);
+            if (!keyResult.proceed) {
+                el.stat.innerText = "待機中";
+                return;
+            }
+        }
         isAppendMode=append;
         if(!append) clearResultUiForNew();
         el.copy.disabled=true; el.stat.innerText="準備中...";
