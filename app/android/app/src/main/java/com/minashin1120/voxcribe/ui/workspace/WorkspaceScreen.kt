@@ -254,19 +254,6 @@ private fun InputCard(ctrl: WorkspaceController) {
                     BsButton("音声をダウンロード", { ctrl.downloadLocalAudio() }, variant = BtnVariant.OUTLINE_PRIMARY, size = BtnSize.SM, icon = Icons.Outlined.Download, pill = true)
                 }
             }
-            if (ctrl.isRecording && Models.isGrokLive(ctrl.model)) {
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.c.softSurface).padding(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        ctrl.liveCaption.ifEmpty { "…" },
-                        color = T.c.muted,
-                        fontSize = 13.sp,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                    )
-                }
-            }
             if (ctrl.abortVisible) {
                 Spacer(Modifier.height(8.dp))
                 BsButton("処理を停止", { ctrl.abortProcessing() }, variant = BtnVariant.OUTLINE_SECONDARY, size = BtnSize.SM, icon = Icons.Outlined.StopCircle, pill = true, enabled = ctrl.abortEnabled)
@@ -570,14 +557,16 @@ private fun ResultCard(ctrl: WorkspaceController) {
             }
             Divider()
         }
-        Box(Modifier.fillMaxWidth()) {
+        val liveActive = ctrl.isRecording && Models.isGrokLive(ctrl.model)
+        Box(Modifier.fillMaxWidth().background(if (liveActive) t.softSurface else Color.Transparent)) {
             FormInput(
                 ctrl.resultText, { ctrl.onResultEdited(it) },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 260.dp),
                 placeholder = "文字起こし結果がここに表示されます",
                 singleLine = false, minLines = 10, borderless = true,
                 fontSize = 15.sp, lineHeight = 28.sp,
-                padding = androidx.compose.foundation.layout.PaddingValues(22.dp)
+                padding = androidx.compose.foundation.layout.PaddingValues(22.dp),
+                italic = liveActive,
             )
             if (ctrl.processingBar) {
                 LinearProgressIndicator(

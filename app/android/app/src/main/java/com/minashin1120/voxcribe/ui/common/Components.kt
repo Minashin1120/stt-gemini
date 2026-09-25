@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -330,6 +331,7 @@ fun FormInput(
     lineHeight: TextUnit = TextUnit.Unspecified,
     padding: PaddingValues = if (small) PaddingValues(horizontal = 10.dp, vertical = 7.dp) else PaddingValues(horizontal = 12.dp, vertical = 10.dp),
     enabled: Boolean = true,
+    italic: Boolean = false,
 ) {
     val t = T.c
     val shape = RoundedCornerShape(radius ?: t.radius.coerceAtMost(14.dp))
@@ -340,7 +342,10 @@ fun FormInput(
         enabled = enabled,
         singleLine = singleLine,
         minLines = minLines,
-        textStyle = TextStyle(color = t.inputText, fontSize = fontSize, fontFamily = t.font, lineHeight = lineHeight),
+        textStyle = TextStyle(
+            color = t.inputText, fontSize = fontSize, fontFamily = t.font, lineHeight = lineHeight,
+            fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal
+        ),
         cursorBrush = SolidColor(t.primary),
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(
