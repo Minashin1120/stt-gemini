@@ -1536,7 +1536,8 @@ def ws_grok_live(ws):
                             # audio.doneを転送した後、xAIが最後のtranscript.doneを送って
                             # relay_threadが自然に終わる(=xai_ws.recv()が空を返す)のを少し待つ。
                             # ここで即座にxai_wsを閉じると末尾の文字起こしが失われる。
-                            relay_thread.join(timeout=4)
+                            # (短すぎるとspeech_final前に停止した末尾発話の確定が間に合わないため8秒に設定)
+                            relay_thread.join(timeout=8)
                             break
                     except (ValueError, TypeError):
                         pass
@@ -1550,7 +1551,7 @@ def ws_grok_live(ws):
             if now - session_start > GROK_LIVE_MAX_SECONDS:
                 try: xai_ws.send(json.dumps({"type": "finalize"}))
                 except Exception: pass
-                relay_thread.join(timeout=4)
+                relay_thread.join(timeout=8)
                 break
     except Exception as e:
         had_error = True
