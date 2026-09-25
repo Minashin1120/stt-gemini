@@ -135,3 +135,51 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo, artifact_id: a.id
               });
             }
+
+  auto_release:
+    name: Auto Tag & Trigger Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      # 既存タグ（vX.Y.Z）の最大値からパッチバージョンを1つ上げて次のタグを決める
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Determine next version tag
+        id: next_tag
+        run: |
+          git fetch --tags --quiet
+          LAST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n1)
+          if [ -z "$LAST" ]; then
+            NEXT="1.0.0"
+          else
+            IFS=. read -r MAJOR MINOR PATCH <<< "$LAST"
+            NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          echo "tag=v${NEXT}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.next_tag.outputs.tag }}"
+          git push origin "${{ steps.next_tag.outputs.tag }}"
+
+      # GITHUB_TOKEN で push したタグは別ワークフローを起動しない仕様のため、
+      # release.yml を明示的に workflow_dispatch で起動する
+      - name: Trigger Release Build workflow
+        uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release.yml',
+              ref: '${{ steps.next_tag.outputs.tag }}',
+            });
+            core.notice(`Triggered release.yml for ${{ steps.next_tag.outputs.tag }}`);
