@@ -114,6 +114,11 @@ GROK_LIVE_ALLOWED_ORIGINS = {f"https://{os.getenv('GROK_LIVE_HOST', 'stt-gemini.
 GROK_LIVE_MAX_SECONDS = 1800
 GROK_LIVE_TASK_REFRESH_SECS = 60
 
+def is_plausible_xai_api_key(api_key):
+    """現行のxAIコンソールが発行するAPIキーの最低限の形式を確認する。"""
+    normalized = api_key.strip() if api_key else ''
+    return len(normalized) > 4 and normalized.startswith('xai-')
+
 def validate_model(model_name):
     return model_name if model_name in ALLOWED_MODELS else 'gemini-3.5-flash'
 
@@ -863,7 +868,7 @@ def settings():
             return redirect(url_for('settings'))
 
         api_key = request.form.get('api_key')
-        xai_api_key = request.form.get('xai_api_key')
+        xai_api_key = (request.form.get('xai_api_key') or '').strip()
         openai_api_key = request.form.get('openai_api_key')
         retention_minutes = request.form.get('retention_minutes')
         
@@ -873,7 +878,9 @@ def settings():
         elif api_key:
             flash('Gemini APIキーが長すぎます。')
         
-        if xai_api_key and len(xai_api_key) <= MAX_API_KEY_LENGTH:
+        if xai_api_key and not is_plausible_xai_api_key(xai_api_key):
+            flash('xAI APIキーの形式が正しくありません（xai- で始まるキーを入力してください）。')
+        elif xai_api_key and len(xai_api_key) <= MAX_API_KEY_LENGTH:
             current_user.set_xai_api_key(xai_api_key)
             flash('xAI APIキーを保存しました。')
         elif xai_api_key:
@@ -900,7 +907,7 @@ def settings():
     return render_template(
         'settings.html',
         has_key=current_user.encrypted_api_key is not None,
-        has_xai_key=current_user.encrypted_xai_api_key is not None,
+        has_xai_key=is_plausible_xai_api_key(current_user.get_xai_api_key()),
         has_openai_key=current_user.encrypted_openai_api_key is not None,
     )
 
@@ -909,7 +916,7 @@ def settings():
 def check_api_keys():
     return jsonify({
         'has_gemini_key': current_user.encrypted_api_key is not None,
-        'has_xai_key': current_user.encrypted_xai_api_key is not None,
+        'has_xai_key': is_plausible_xai_api_key(current_user.get_xai_api_key()),
         'has_openai_key': current_user.encrypted_openai_api_key is not None,
     })
 
@@ -921,7 +928,7 @@ def check_api_key():
     if model in ('gpt-transcribe', 'gpt-live-transcribe'):
         has_key = current_user.encrypted_openai_api_key is not None
     elif model in ('grok-stt', 'grok-live-transcribe'):
-        has_key = current_user.encrypted_xai_api_key is not None
+        has_key = is_plausible_xai_api_key(current_user.get_xai_api_key())
     else:
         has_key = current_user.encrypted_api_key is not None
     return jsonify({'has_key': has_key})
@@ -937,6 +944,8 @@ def save_api_key():
     if len(api_key) > MAX_API_KEY_LENGTH:
         return jsonify({'error': 'APIキーが長すぎます'}), 400
     if key_type == 'xai':
+        if not is_plausible_xai_api_key(api_key):
+            return jsonify({'error': 'xAI APIキーの形式が正しくありません（xai- で始まるキーを入力してください）'}), 400
         current_user.set_xai_api_key(api_key)
         flash('xAI APIキーを保存しました。')
     elif key_type == 'gemini':
@@ -1343,7 +1352,8 @@ def transcribe():
         # grok-live-transcribeは通常WebSocket(/ws/grok_live)経由だが、ファイルアップロード等で
         # ここに来た場合は静的ファイルなのでバッチのGrok STTとして扱う。
         api_key = current_user.get_xai_api_key()
-        if not api_key: return jsonify({'error': 'xAI API Key not set. Go to Settings to configure it.'}), 400
+        if not is_plausible_xai_api_key(api_key):
+            return jsonify({'error': 'xAI APIキーが未設定か、形式が正しくありません。設定画面で確認してください。'}), 400
 
         task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
         thread = threading.Thread(
@@ -1465,8 +1475,8 @@ def ws_grok_live(ws):
         return
 
     api_key = current_user.get_xai_api_key()
-    if not api_key:
-        try: ws.send(json.dumps({"type": "error", "message": "xAI API Key not set. Go to Settings to configure it."}))
+    if not is_plausible_xai_api_key(api_key):
+        try: ws.send(json.dumps({"type": "error", "message": "xAI APIキーが未設定か、形式が正しくありません。設定画面で確認してください。"}))
         except Exception: pass
         ws.close()
         return
@@ -1490,9 +1500,12 @@ def ws_grok_live(ws):
         )
     except Exception as e:
         logger.error(f"Grok Live: xAI接続失敗 task={task_id}: {e}")
-        try: ws.send(json.dumps({"type": "error", "message": "xAI STTへの接続に失敗しました。"}))
+        status_code = getattr(e, 'status_code', None)
+        message = ('xAI APIキーが無効です。設定画面で確認してください。'
+                   if status_code in (400, 401, 403) else 'xAI STTへの接続に失敗しました。')
+        try: ws.send(json.dumps({"type": "error", "message": message}))
         except Exception: pass
-        update_task(task_id, status='error', error='xAI STTへの接続に失敗しました。')
+        update_task(task_id, status='error', error=message)
         ws.close()
         return
 
@@ -1619,7 +1632,8 @@ def reanalyze():
     
     if model in ('grok-stt', 'grok-live-transcribe'):
         api_key = current_user.get_xai_api_key()
-        if not api_key: return jsonify({'error': 'xAI API Key not set'}), 400
+        if not is_plausible_xai_api_key(api_key):
+            return jsonify({'error': 'xAI APIキーが未設定か、形式が正しくありません。'}), 400
 
         task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
         thread = threading.Thread(
@@ -2085,8 +2099,8 @@ def upload_complete():
 
     if model in ('grok-stt', 'grok-live-transcribe'):
         api_key = current_user.get_xai_api_key()
-        if not api_key:
-            return jsonify({'error': 'xAI API Key not set. Go to Settings to configure it.'}), 400
+        if not is_plausible_xai_api_key(api_key):
+            return jsonify({'error': 'xAI APIキーが未設定か、形式が正しくありません。設定画面で確認してください。'}), 400
 
         task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
         thread = threading.Thread(
@@ -2530,7 +2544,14 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
 
         if task_is_cancelled(task_id):
             return
-        if response.status_code == 401:
+        response_error = ''
+        try:
+            response_error = str(response.json().get('error', ''))
+        except (ValueError, AttributeError):
+            pass
+        if response.status_code in (401, 403) or (
+            response.status_code == 400 and 'api key' in response_error.lower()
+        ):
             update_task(task_id, status='error', error='xAI APIキーが無効です。設定画面で確認してください。')
             return
         elif response.status_code == 413:
