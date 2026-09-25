@@ -907,7 +907,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentTaskId = null;
     let cancellationInProgress = false;
     // Grok Live (リアルタイム文字起こし) の状態
-    let grokLiveWs = null, grokLiveText = '', grokLiveFailed = false, grokLiveChannels = 1;
+    let grokLiveWs = null, grokLiveText = '', grokLiveInterim = '', grokLiveFailed = false, grokLiveChannels = 1;
     let visPeakEma = 0.02;
     let capturePeak = 0;
     let lastMicSettings = null;
@@ -2897,6 +2897,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startGrokLiveSession(channels, sampleRate) {
         grokLiveText = '';
+        grokLiveInterim = '';
         grokLiveFailed = false;
         grokLiveChannels = channels;
         initText = (isAppendMode && el.res.value.trim()) ? el.res.value.trim() + "\n\n" : "";
@@ -2934,16 +2935,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (d.type === 'transcript.partial') {
                 if (d.is_final && d.speech_final && d.text) {
                     grokLiveText += (grokLiveText ? '\n' : '') + d.text;
+                    grokLiveInterim = '';
                     el.res.value = initText + grokLiveText;
                 } else {
-                    el.res.value = initText + grokLiveText + (grokLiveText ? '\n' : '') + (d.text || '');
+                    grokLiveInterim = d.text || '';
+                    el.res.value = initText + grokLiveText + (grokLiveText ? '\n' : '') + grokLiveInterim;
                 }
                 el.res.scrollTop = el.res.scrollHeight;
             } else if (d.type === 'transcript.done') {
                 // transcript.doneはセッション終了時に送られる、そのチャンネルの確定済み全文。
                 // speech_final境界の後に発話された末尾の言葉もここに含まれるため、
                 // 積み上げてきたテキストより常に優先する(権威あるソース)。
-                if (d.text) grokLiveText = d.text;
+                // ただしタイムアウト等でtextが空/未着のこともあるため、その場合はgrokLiveTextを
+                // 保持したままにする(下のstop.onclickでgrokLiveInterimを最終フォールバックとして使う)。
+                if (d.text) { grokLiveText = d.text; grokLiveInterim = ''; }
                 el.res.value = initText + grokLiveText;
             } else if (d.type === 'error') {
                 grokLiveFailed = true;
@@ -2992,7 +2997,7 @@ document.addEventListener('DOMContentLoaded', () => {
         floatChunks = [];
         capturePeak = 0;
         if (grokLiveWs) { try { grokLiveWs.close(); } catch (_) {} grokLiveWs = null; }
-        grokLiveText = ''; grokLiveFailed = false;
+        grokLiveText = ''; grokLiveInterim = ''; grokLiveFailed = false;
         el.res.classList.remove('grok-live-active');
 
         try {
@@ -3166,7 +3171,7 @@ document.addEventListener('DOMContentLoaded', () => {
             grokLiveWs = null;
             el.res.value = initText;
         }
-        grokLiveText = ''; grokLiveFailed = false;
+        grokLiveText = ''; grokLiveInterim = ''; grokLiveFailed = false;
         el.res.classList.remove('grok-live-active');
         if (micLevelStatus) micLevelStatus.classList.add('d-none');
         el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
@@ -3204,8 +3209,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastMicSettings = null;
                 console.log('[STT] applied makeup gain', gain.toFixed(2), 'rawPeak', peakBefore, 'agcOff', agcOff);
                 const recName = fmt === 'wav' ? 'rec.wav' : 'rec.mp3';
-                if (wasGrokLive && !grokLiveFailed && grokLiveText) {
-                    finalizeLiveGrok(blob, recName);
+                // transcript.doneがタイムアウト等で届かない/空のことがあるため、
+                // その場合でも未確定のまま表示されていたgrokLiveInterimを最終テキストに含める
+                // (でないとリアルタイムでは見えていたのに保存結果が空になってしまう)。
+                const grokLiveFinalText = grokLiveText + (grokLiveInterim ? (grokLiveText ? '\n' : '') + grokLiveInterim : '');
+                if (wasGrokLive && !grokLiveFailed && grokLiveFinalText) {
+                    finalizeLiveGrok(blob, recName, grokLiveFinalText);
                 } else {
                     // WSが使えなかった/テキストが取れなかった場合は通常のバッチアップロードにフォールバック。
                     // model='grok-live-transcribe'のまま送ってよい(サーバー側/transcribeがgrok-sttと
@@ -3274,13 +3283,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /** Grok Live: WebSocketで受信済みの確定テキストを音声と一緒にサーバーへ送って保存する。
      * 既存のAI呼び出し(/transcribe)を経由しない: 文字起こしは既にWebSocket上で完了しているため。 */
-    async function finalizeLiveGrok(b, n) {
+    async function finalizeLiveGrok(b, n, text) {
         rememberLocalAudio(b, n);
         hideErrorDownloadButton();
         el.stat.innerText = "保存中...";
         const fd = new FormData();
         fd.append('audio_file', b, n);
-        fd.append('text', grokLiveText);
+        fd.append('text', text);
         fd.append('is_append', isAppendMode ? '1' : '0');
         try {
             const r = await csrfFetch('/transcribe_live_finalize', { method: 'POST', body: fd });
