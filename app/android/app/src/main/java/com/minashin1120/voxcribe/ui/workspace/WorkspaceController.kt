@@ -144,6 +144,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
     private var liveSession: GrokLiveSession? = null
     private var liveToken: CancelToken? = null
     @Volatile private var liveText: String = ""
+    @Volatile private var liveInterim: String = ""
     @Volatile private var liveFailed = false
     @Volatile private var liveInitText: String = ""
 
@@ -409,6 +410,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
      * liveFailed=true のまま何もせず、停止時に通常のバッチGrok STTへフォールバックする。 */
     private fun startGrokLiveSession(settings: MicSettings) {
         liveText = ""
+        liveInterim = ""
         liveFailed = false
         liveInitText = if (isAppendMode && resultText.trim().isNotEmpty()) resultText.trim() + "\n\n" else ""
         resultText = liveInitText
@@ -433,17 +435,22 @@ class WorkspaceController(private val app: VoxcribeApp) {
                 if (chIdx == 0) {
                     if (isFinal && speechFinal && text.isNotEmpty()) {
                         liveText = if (liveText.isNotEmpty()) liveText + "\n" + text else text
+                        liveInterim = ""
                         resultText = liveInitText + liveText
                     } else {
-                        resultText = liveInitText + liveText + (if (liveText.isNotEmpty()) "\n" else "") + text
+                        liveInterim = text
+                        resultText = liveInitText + liveText + (if (liveText.isNotEmpty()) "\n" else "") + liveInterim
                     }
                 }
             },
             onFinalText = { chIdx, text ->
                 // transcript.doneはセッション終了時に送られる確定済み全文。speech_final境界の後に
                 // 発話された末尾の言葉も含まれるため、積み上げてきたテキストより常に優先する。
+                // タイムアウト等でtextが空/未着のこともあるため、その場合はliveTextを保持したままにする
+                // (stopRecording側でliveInterimを最終フォールバックとして使う)。
                 if (chIdx == 0 && text.isNotEmpty()) {
                     liveText = text
+                    liveInterim = ""
                     resultText = liveInitText + liveText
                 }
             },
@@ -455,6 +462,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
         liveSession = null
         liveToken = null
         liveText = ""
+        liveInterim = ""
         liveFailed = false
         recorder.onRawBlock = null
     }
@@ -498,7 +506,10 @@ class WorkspaceController(private val app: VoxcribeApp) {
                 WorkService.update(ctx, recording = false, processing = taskRunning)
                 val name = if (fmt == "wav") "rec.wav" else "rec.mp3"
                 if (session != null) {
-                    val text = liveText
+                    // transcript.doneがタイムアウト等で届かない/空のことがあるため、
+                    // その場合でも未確定のまま表示されていたliveInterimを最終テキストに含める
+                    // (でないとリアルタイムでは見えていたのに保存結果が空になってしまう)。
+                    val text = liveText + (if (liveInterim.isNotEmpty()) (if (liveText.isNotEmpty()) "\n" else "") + liveInterim else "")
                     val failed = liveFailed
                     stopGrokLiveState()
                     if (!failed && text.isNotEmpty()) {
