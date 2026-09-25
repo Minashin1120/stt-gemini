@@ -69,6 +69,21 @@
     </div>
 </div>
 
+<div class="card settings-card mb-4">
+    <div class="card-header fw-bold">
+        <span class="settings-card-icon"><i class="bi bi-journal-arrow-down"></i></span><span>単語リスト</span>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">すべての単語セットをJSONファイルに書き出したり、書き出したファイルから追加できます。Web版とAndroid版の間でも移行できます。</p>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="/api/word_sets/export" class="btn btn-outline-primary"><i class="bi bi-download me-1"></i>エクスポート</a>
+            <button type="button" id="importWordListsBtn" class="btn btn-outline-secondary"><i class="bi bi-upload me-1"></i>インポート</button>
+            <input type="file" id="wordListsFileInput" accept="application/json,.json" hidden>
+        </div>
+        <div class="form-text mt-2">インポートした単語セットは、現在のリストを残したまま追加されます。</div>
+    </div>
+</div>
+
 <div class="card settings-card">
     <div class="card-header fw-bold">
         <span class="settings-card-icon"><i class="bi bi-palette"></i></span><span>外観</span>
@@ -129,6 +144,8 @@
         const saveBtn = document.getElementById('saveThemeBtn');
         const deleteBtn = document.getElementById('deleteAccountBtn');
         const yomiganaSelect = document.getElementById('yomiganaModelSelect');
+        const importBtn = document.getElementById('importWordListsBtn');
+        const importInput = document.getElementById('wordListsFileInput');
         
         // Restore saved theme in select
         const savedTheme = localStorage.getItem('app_theme') || '';
@@ -158,6 +175,33 @@
                 showToast('読み自動生成モデルを保存しました');
             });
         }
+
+        importBtn.addEventListener('click', () => importInput.click());
+        importInput.addEventListener('change', async () => {
+            const file = importInput.files[0];
+            if (!file) return;
+            importBtn.disabled = true;
+            const originalHtml = importBtn.innerHTML;
+            importBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>インポート中...';
+            try {
+                const body = new FormData();
+                body.append('file', file);
+                const response = await fetch('/api/word_sets/import', {
+                    method: 'POST',
+                    headers: {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content},
+                    body
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'インポートに失敗しました。');
+                showToast(`単語セット${result.sets}件、単語${result.words}件をインポートしました。`);
+            } catch (error) {
+                showToast(error.message || 'インポートに失敗しました。', true);
+            } finally {
+                importInput.value = '';
+                importBtn.disabled = false;
+                importBtn.innerHTML = originalHtml;
+            }
+        });
         
         deleteBtn.addEventListener('click', async () => {
             if (confirm('本当にアカウントを削除しますか？\nこの操作は取り消せず、すべてのデータが失われます。')) {

@@ -57,6 +57,9 @@ MAX_INCOMPLETE_UPLOADS = 3
 MAX_API_KEY_LENGTH = 512
 MAX_TEXT_LENGTH = 200_000
 MAX_INSTRUCTION_LENGTH = 20_000
+MAX_WORD_LIST_IMPORT_BYTES = 1024 * 1024
+MAX_WORD_LIST_IMPORT_SETS = 200
+MAX_WORD_LIST_IMPORT_WORDS = 10_000
 ALLOWED_AUDIO_EXTENSIONS = {
     '.mp3': 'audio/mpeg',
     '.wav': 'audio/wav',
@@ -996,6 +999,107 @@ def delete_account():
         return jsonify({'error': 'アカウント削除に失敗しました'}), 500
 
 # --- Word List Routes ---
+def parse_word_list_import(raw_bytes):
+    if len(raw_bytes) > MAX_WORD_LIST_IMPORT_BYTES:
+        raise ValueError('ファイルサイズは1MB以下にしてください。')
+    try:
+        payload = json.loads(raw_bytes.decode('utf-8-sig'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise ValueError('JSONファイルの形式が正しくありません。')
+
+    if (not isinstance(payload, dict) or payload.get('format') != 'voxcribe-word-lists'
+            or type(payload.get('version')) is not int or payload.get('version') != 1):
+        raise ValueError('Voxcribeの単語リストファイルではありません。')
+    word_sets = payload.get('word_sets')
+    if not isinstance(word_sets, list):
+        raise ValueError('単語セットの形式が正しくありません。')
+    if len(word_sets) > MAX_WORD_LIST_IMPORT_SETS:
+        raise ValueError(f'単語セットは{MAX_WORD_LIST_IMPORT_SETS}件以下にしてください。')
+
+    parsed_sets = []
+    total_words = 0
+    for item in word_sets:
+        if not isinstance(item, dict):
+            raise ValueError('単語セットの形式が正しくありません。')
+        name = item.get('name')
+        is_active = item.get('is_active')
+        words = item.get('words')
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
+            raise ValueError('セット名は1〜100文字で指定してください。')
+        if not isinstance(is_active, bool) or not isinstance(words, list):
+            raise ValueError('単語セットの形式が正しくありません。')
+        total_words += len(words)
+        if total_words > MAX_WORD_LIST_IMPORT_WORDS:
+            raise ValueError(f'単語は合計{MAX_WORD_LIST_IMPORT_WORDS}件以下にしてください。')
+
+        parsed_words = []
+        for word in words:
+            if not isinstance(word, dict):
+                raise ValueError('単語の形式が正しくありません。')
+            reading = word.get('reading')
+            replacement = word.get('replacement')
+            if (not isinstance(reading, str) or not reading.strip() or len(reading.strip()) > 255
+                    or not isinstance(replacement, str) or not replacement.strip() or len(replacement.strip()) > 255):
+                raise ValueError('読みと変換後はそれぞれ1〜255文字で指定してください。')
+            parsed_words.append({'reading': reading.strip(), 'replacement': replacement.strip()})
+        parsed_sets.append({'name': name.strip(), 'is_active': is_active, 'words': parsed_words})
+    return parsed_sets, total_words
+
+
+@app.route('/api/word_sets/export')
+@login_required
+def export_word_sets():
+    sets = WordSet.query.filter_by(user_id=current_user.id).order_by(WordSet.id.asc()).all()
+    payload = {
+        'format': 'voxcribe-word-lists',
+        'version': 1,
+        'word_sets': [
+            {
+                'name': word_set.name,
+                'is_active': bool(word_set.is_active),
+                'words': [
+                    {'reading': word.reading, 'replacement': word.replacement}
+                    for word in Word.query.filter_by(set_id=word_set.id).order_by(Word.id.asc()).all()
+                ],
+            }
+            for word_set in sets
+        ],
+    }
+    filename = f"voxcribe-word-lists-{datetime.now().strftime('%Y%m%d')}.json"
+    response = Response(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', mimetype='application/json')
+    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route('/api/word_sets/import', methods=['POST'])
+@login_required
+def import_word_sets():
+    upload = request.files.get('file')
+    if not upload or not upload.filename:
+        return jsonify({'error': 'インポートするJSONファイルを選択してください。'}), 400
+    raw_bytes = upload.stream.read(MAX_WORD_LIST_IMPORT_BYTES + 1)
+    try:
+        parsed_sets, total_words = parse_word_list_import(raw_bytes)
+        for item in parsed_sets:
+            word_set = WordSet(user_id=current_user.id, name=item['name'], is_active=item['is_active'])
+            db.session.add(word_set)
+            db.session.flush()
+            db.session.add_all([
+                Word(set_id=word_set.id, reading=word['reading'], replacement=word['replacement'])
+                for word in item['words']
+            ])
+        db.session.commit()
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 400
+    except Exception:
+        db.session.rollback()
+        logger.exception('Word list import failed for user %s', current_user.id)
+        return jsonify({'error': '単語リストのインポートに失敗しました。'}), 500
+    return jsonify({'success': True, 'sets': len(parsed_sets), 'words': total_words})
+
+
 @app.route('/api/word_sets/manage_html')
 @login_required
 def word_sets_manage_html():

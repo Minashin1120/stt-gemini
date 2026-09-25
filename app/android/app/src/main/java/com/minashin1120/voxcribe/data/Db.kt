@@ -180,6 +180,31 @@ class Db(context: Context) : SQLiteOpenHelper(context, "voxcribe.db", null, 1) {
     @Synchronized
     fun activeWords(): List<WordRow> = wordSets().filter { it.isActive }.flatMap { words(it.id) }
 
+    /** 検証済みの単語セットを一括追加する。失敗時は全件ロールバックする。 */
+    @Synchronized
+    fun importWordSets(sets: List<ImportedWordSet>) {
+        val database = writableDatabase
+        database.beginTransaction()
+        try {
+            sets.forEach { set ->
+                val setId = database.insertOrThrow("word_set", null, ContentValues().apply {
+                    put("name", set.name)
+                    put("is_active", if (set.isActive) 1 else 0)
+                })
+                set.words.forEach { word ->
+                    database.insertOrThrow("word", null, ContentValues().apply {
+                        put("set_id", setId)
+                        put("reading", word.reading)
+                        put("replacement", word.replacement)
+                    })
+                }
+            }
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
     @Synchronized
     fun wipeAll() {
         writableDatabase.delete("word", null, null)

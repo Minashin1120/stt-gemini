@@ -1,5 +1,7 @@
 package com.minashin1120.voxcribe.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -27,9 +30,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -37,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +51,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +59,7 @@ import com.minashin1120.voxcribe.VoxcribeApp
 import com.minashin1120.voxcribe.ai.Models
 import com.minashin1120.voxcribe.data.SecretStore
 import com.minashin1120.voxcribe.data.SecretStore.KeyType
+import com.minashin1120.voxcribe.data.WordListTransfer
 import com.minashin1120.voxcribe.ui.ThemeState
 import com.minashin1120.voxcribe.ui.common.AlertBox
 import com.minashin1120.voxcribe.ui.common.AlertKind
@@ -68,6 +76,10 @@ import com.minashin1120.voxcribe.ui.common.appCard
 import com.minashin1120.voxcribe.ui.theme.Bs
 import com.minashin1120.voxcribe.ui.theme.T
 import com.minashin1120.voxcribe.ui.theme.Themes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 /** settings.html の移植（APIとデータ / 外観 / プライバシー / 危険な操作） */
 @Composable
@@ -84,6 +96,46 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
     var retention by remember { mutableStateOf(app.prefs.retentionMinutes.toString()) }
     var yomigana by remember { mutableStateOf(app.prefs.yomiganaModel) }
     var theme by remember { mutableStateOf(ThemeState.key) }
+    var transferringWordLists by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val exportWordLists = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        transferringWordLists = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { WordListTransfer.export(app.db, it) }
+                        ?: error("保存先を開けませんでした。")
+                }
+                app.toaster.show("単語リストをエクスポートしました。")
+            } catch (_: Exception) {
+                app.toaster.show("単語リストのエクスポートに失敗しました。", true)
+            } finally {
+                transferringWordLists = false
+            }
+        }
+    }
+    val importWordLists = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        transferringWordLists = true
+        scope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { WordListTransfer.importFrom(app.db, it) }
+                        ?: error("ファイルを開けませんでした。")
+                }
+                app.workspace.loadWordSetStatus()
+                app.toaster.show("単語セット${result.sets}件、単語${result.words}件をインポートしました。")
+            } catch (e: IllegalArgumentException) {
+                app.toaster.show(e.message ?: "単語リストの形式が正しくありません。", true)
+            } catch (_: Exception) {
+                app.toaster.show("単語リストのインポートに失敗しました。", true)
+            } finally {
+                transferringWordLists = false
+            }
+        }
+    }
 
     AppBackground {
         Column(
@@ -151,6 +203,31 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
                     version++
                     msgs.forEach { (m, err) -> app.toaster.show(m, err) }
                 }, icon = Icons.Outlined.Check)
+            }
+
+            // ---------- 単語リスト ----------
+            SettingsCard(Icons.Outlined.SwapHoriz, "単語リスト") {
+                MutedText("すべての単語セットをJSONファイルに書き出したり、書き出したファイルから追加できます。Web版とAndroid版の間でも移行できます。", fontSize = 13.sp)
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BsButton(
+                        "エクスポート",
+                        { exportWordLists.launch("voxcribe-word-lists-${LocalDate.now()}.json") },
+                        modifier = Modifier.weight(1f),
+                        variant = BtnVariant.OUTLINE_PRIMARY,
+                        icon = Icons.Outlined.Download,
+                        enabled = !transferringWordLists,
+                    )
+                    BsButton(
+                        "インポート",
+                        { importWordLists.launch(arrayOf("application/json", "text/json")) },
+                        modifier = Modifier.weight(1f),
+                        variant = BtnVariant.OUTLINE_SECONDARY,
+                        icon = Icons.Outlined.SwapHoriz,
+                        enabled = !transferringWordLists,
+                    )
+                }
+                FormText("インポートした単語セットは、現在のリストを残したまま追加されます。")
             }
 
             // ---------- 外観 ----------

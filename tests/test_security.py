@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import shutil
 import sys
@@ -220,6 +221,60 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b'gemini-secret-value', response.data)
         self.assertEqual(response.headers['Cache-Control'], 'no-store')
+
+    def test_word_lists_export_and_import_use_portable_format(self):
+        with application.app.app_context():
+            source_set = application.WordSet(user_id=self.first_id, name='固有名詞', is_active=True)
+            application.db.session.add(source_set)
+            application.db.session.flush()
+            application.db.session.add(application.Word(set_id=source_set.id, reading='ぼっくすくらいぶ', replacement='Voxcribe'))
+            application.db.session.commit()
+
+        source_client = application.app.test_client()
+        self.authenticate(source_client, self.first_id)
+        exported = source_client.get('/api/word_sets/export', headers={'User-Agent': 'Mozilla/5.0'})
+        self.assertEqual(exported.status_code, 200)
+        payload = json.loads(exported.data)
+        self.assertEqual(payload['format'], 'voxcribe-word-lists')
+        self.assertEqual(payload['version'], 1)
+        self.assertEqual(payload['word_sets'][0]['words'][0]['replacement'], 'Voxcribe')
+        self.assertIn('attachment;', exported.headers['Content-Disposition'])
+
+        target_client = application.app.test_client()
+        token = self.authenticate(target_client, self.second_id)
+        imported = target_client.post(
+            '/api/word_sets/import',
+            data={'file': (io.BytesIO(exported.data), 'words.json')},
+            headers={'User-Agent': 'Mozilla/5.0', 'X-CSRFToken': token},
+        )
+        self.assertEqual(imported.status_code, 200)
+        self.assertEqual(imported.get_json(), {'success': True, 'sets': 1, 'words': 1})
+        with application.app.app_context():
+            target_set = application.WordSet.query.filter_by(user_id=self.second_id).one()
+            self.assertEqual(target_set.name, '固有名詞')
+            self.assertTrue(target_set.is_active)
+            self.assertEqual(target_set.words[0].reading, 'ぼっくすくらいぶ')
+            self.assertEqual(application.WordSet.query.filter_by(user_id=self.first_id).count(), 1)
+
+    def test_invalid_word_list_import_adds_nothing(self):
+        client = application.app.test_client()
+        token = self.authenticate(client, self.first_id)
+        payload = {
+            'format': 'voxcribe-word-lists',
+            'version': 1,
+            'word_sets': [
+                {'name': 'valid', 'is_active': False, 'words': []},
+                {'name': '', 'is_active': False, 'words': []},
+            ],
+        }
+        response = client.post(
+            '/api/word_sets/import',
+            data={'file': (io.BytesIO(json.dumps(payload).encode()), 'words.json')},
+            headers={'User-Agent': 'Mozilla/5.0', 'X-CSRFToken': token},
+        )
+        self.assertEqual(response.status_code, 400)
+        with application.app.app_context():
+            self.assertEqual(application.WordSet.query.filter_by(user_id=self.first_id).count(), 0)
 
     def test_logout_requires_post_and_csrf(self):
         client = application.app.test_client()
