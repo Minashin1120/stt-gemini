@@ -16,9 +16,12 @@ import com.minashin1120.voxcribe.VoxcribeApp
 import com.minashin1120.voxcribe.ai.AiEvent
 import com.minashin1120.voxcribe.ai.AiRequest
 import com.minashin1120.voxcribe.ai.CancelToken
+import com.minashin1120.voxcribe.ai.GrokClient
+import com.minashin1120.voxcribe.ai.GrokLiveSession
 import com.minashin1120.voxcribe.ai.Models
 import com.minashin1120.voxcribe.ai.Prompts
 import com.minashin1120.voxcribe.ai.TaskPhase
+import com.minashin1120.voxcribe.ai.startLiveSession
 import com.minashin1120.voxcribe.audio.Finalize
 import com.minashin1120.voxcribe.audio.MicInfo
 import com.minashin1120.voxcribe.audio.MicProbe
@@ -132,6 +135,18 @@ class WorkspaceController(private val app: VoxcribeApp) {
     var levelText by mutableStateOf<LevelText?>(null)
     val recorder = NativeRecorder(app.cacheDir)
     @Volatile var latestBlock: FloatArray? = null
+
+    // Grok Live (リアルタイム文字起こし)
+    // liveText/liveFailedはOkHttpのWebSocketコールバックスレッドから書き込まれ、
+    // stopRecording()のコルーチンスレッドから読まれるため、可視性確保に@Volatileが必要。
+    // StringBuilderでのin-place追記だと参照自体が変わらず@Volatileの恩恵を受けられないため、
+    // 常に新しいStringへ再代入する。
+    private var liveSession: GrokLiveSession? = null
+    private var liveToken: CancelToken? = null
+    @Volatile private var liveText: String = ""
+    @Volatile private var liveFailed = false
+    var liveCaption by mutableStateOf("")
+
     private var preparedNoiseOn: Boolean? = null
     private var micInfo: MicInfo? = null
     private var lastMicSettings: MicSettings? = null
@@ -310,6 +325,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
                 recordNoise = noiseOn
                 recordFormat = format
                 recorder.onBlock = { latestBlock = it }
+                if (Models.isGrokLive(model)) startGrokLiveSession(settings) else stopGrokLiveState()
                 recorder.start()
                 isRecording = true
                 isPaused = false
@@ -377,6 +393,8 @@ class WorkspaceController(private val app: VoxcribeApp) {
         isPaused = false
         noiseSwitchEnabled = true
         recorder.onBlock = null
+        liveSession?.cancel()
+        stopGrokLiveState()
         scope.launch(Dispatchers.IO) { recorder.cancel() }
         latestBlock = null
         levelText = null
@@ -385,19 +403,81 @@ class WorkspaceController(private val app: VoxcribeApp) {
         WorkService.update(ctx, recording = false, processing = taskRunning)
     }
 
+    /** Grok Live: 録音開始時にxAIへのWebSocketセッションを開く。キー未設定/失敗時は
+     * liveFailed=true のまま何もせず、停止時に通常のバッチGrok STTへフォールバックする。 */
+    private fun startGrokLiveSession(settings: MicSettings) {
+        liveText = ""
+        liveFailed = false
+        liveCaption = ""
+        liveSession = null
+        val key = app.secrets.get(KeyType.XAI)
+        if (key == null) {
+            liveFailed = true
+            recorder.onRawBlock = null
+            return
+        }
+        val token = CancelToken()
+        liveToken = token
+        recorder.onRawBlock = { buf, _ -> liveSession?.sendAudio(floatToPcm16Interleaved(buf)) }
+        liveSession = GrokClient.startLiveSession(
+            apiKey = key,
+            sampleRate = settings.sampleRate,
+            channels = settings.channels,
+            token = token,
+            onStatus = {},
+            onPartial = { chIdx, text, isFinal, speechFinal ->
+                // 2マイクは同じ音源を別々に拾っているだけなので、表示・確定はchannel 0のみを使う
+                if (chIdx == 0) {
+                    liveCaption = text
+                    if (isFinal && speechFinal && text.isNotEmpty()) {
+                        liveText = if (liveText.isNotEmpty()) liveText + "\n" + text else text
+                    }
+                }
+            },
+            onFinalText = { chIdx, text ->
+                // transcript.doneはセッション終了時に送られる確定済み全文。speech_final境界の後に
+                // 発話された末尾の言葉も含まれるため、積み上げてきたテキストより常に優先する。
+                if (chIdx == 0 && text.isNotEmpty()) liveText = text
+            },
+            onError = { liveFailed = true },
+        )
+    }
+
+    private fun stopGrokLiveState() {
+        liveSession = null
+        liveToken = null
+        liveText = ""
+        liveFailed = false
+        liveCaption = ""
+        recorder.onRawBlock = null
+    }
+
+    private fun floatToPcm16Interleaved(buf: FloatArray): ByteArray {
+        val out = ByteArray(buf.size * 2)
+        for (i in buf.indices) {
+            val v = (buf[i].coerceIn(-1f, 1f) * 32767).toInt()
+            out[i * 2] = (v and 0xFF).toByte()
+            out[i * 2 + 1] = ((v shr 8) and 0xFF).toByte()
+        }
+        return out
+    }
+
     fun stopRecording() {
         isRecording = false
         isPaused = false
         noiseSwitchEnabled = true
         recorder.onBlock = null
+        recorder.onRawBlock = null
         latestBlock = null
         levelText = null
         status = StatusView("解析中...")
         val mic = lastMicSettings
         val fmt = recordFormat
         val noiseOn = recordNoise
+        val session = liveSession
         scope.launch {
             try {
+                if (session != null) withContext(Dispatchers.IO) { session.finish() }
                 val result = withContext(Dispatchers.IO) {
                     val raw = recorder.stop() ?: throw IllegalStateException("録音データがありません")
                     val ext = if (fmt == "wav") ".wav" else ".mp3"
@@ -409,14 +489,64 @@ class WorkspaceController(private val app: VoxcribeApp) {
                 }
                 lastMicSettings = null
                 WorkService.update(ctx, recording = false, processing = taskRunning)
-                upl(result.file, if (fmt == "wav") "rec.wav" else "rec.mp3")
+                val name = if (fmt == "wav") "rec.wav" else "rec.mp3"
+                if (session != null) {
+                    val text = liveText
+                    val failed = liveFailed
+                    stopGrokLiveState()
+                    if (!failed && text.isNotEmpty()) {
+                        finalizeLiveGrok(result.file, name, text)
+                    } else {
+                        // WSが使えなかった/テキストが取れなかった場合は通常のバッチアップロードにフォールバック。
+                        // model="grok-live-transcribe"のままでよい(Models.isGrokがtrueを返すため
+                        // AiRunner.runSttは通常のGrokClient.transcribeバッチ経路をそのまま使う)。
+                        upl(result.file, name)
+                    }
+                } else {
+                    upl(result.file, name)
+                }
             } catch (e: Exception) {
                 lastMicSettings = null
+                stopGrokLiveState()
                 WorkService.update(ctx, recording = false, processing = taskRunning)
                 status = StatusView("エラー")
                 toast.show(e.message ?: e.toString(), true)
             }
         }
+    }
+
+    /** Grok Live: WebSocketで受信済みの確定テキストを音声と一緒に端末内に保存する。
+     * 既存のAiRunner(/transcribe相当)を経由しない: 文字起こしは既にWebSocket上で完了しているため。 */
+    private suspend fun finalizeLiveGrok(blob: File, name: String, rawText: String) {
+        rememberLocalAudio(blob, name)
+        errorDownloadVisible = false
+        if (!isAppendMode) clearResultUiForNew()
+        status = StatusView("保存中...")
+        val text = withContext(Dispatchers.IO) { app.runner.applyWordReplacements(rawText) }
+        val stored = withContext(Dispatchers.IO) {
+            val f = app.audio.newFile(AudioStore.extOf(name))
+            blob.copyTo(f, overwrite = true)
+            f
+        }
+        withContext(Dispatchers.IO) {
+            if (!isAppendMode) {
+                app.db.clearHistory()
+                app.audio.deleteAllExcept(stored)
+                prefs.lastAudioFile = null
+                prefs.lastAudioMime = null
+            }
+            prefs.lastAudioFile = stored.name
+            prefs.lastAudioMime = AudioStore.MIME_BY_EXT[AudioStore.extOf(name)] ?: "audio/mpeg"
+            if (text.isNotEmpty()) app.db.insertHistory("transcribe", "Live Audio (Grok)", "", text)
+        }
+        resultText = if (isAppendMode && resultText.trim().isNotEmpty()) resultText.trim() + "\n\n" + text else text
+        status = StatusView("完了")
+        copyEnabled = true
+        reanalyzeEnabled = true
+        deleteAudioEnabled = true
+        syncPostprocessButtons()
+        toast.show("完了")
+        loadHistory()
     }
 
     /** 録音データの送信（index.html upl） */
@@ -1105,7 +1235,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
         val models = mutableListOf<Pair<String, String>>()
         if (app.secrets.has(KeyType.GEMINI)) models += Models.GEMINI.map { it.value to it.label }
         if (app.secrets.has(KeyType.OPENAI)) models += listOf("gpt-transcribe" to "GPT-Transcribe", "gpt-live-transcribe" to "GPT-Live Transcribe")
-        if (app.secrets.has(KeyType.XAI)) models += "grok-stt" to "Grok STT"
+        if (app.secrets.has(KeyType.XAI)) models += listOf("grok-stt" to "Grok STT", "grok-live-transcribe" to "Grok Live")
         apiKeyPrompt = p.copy(view = AkView.SWITCH, switchModels = models)
     }
 
