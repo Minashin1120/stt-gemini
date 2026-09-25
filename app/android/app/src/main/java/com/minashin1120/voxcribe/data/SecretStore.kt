@@ -20,7 +20,10 @@ class SecretStore(context: Context) {
 
     enum class KeyType(val prefKey: String) { GEMINI("gemini"), XAI("xai"), OPENAI("openai") }
 
-    fun has(type: KeyType): Boolean = !get(type).isNullOrEmpty()
+    fun has(type: KeyType): Boolean {
+        val value = get(type)
+        return if (type == KeyType.XAI) isPlausibleXaiApiKey(value) else !value.isNullOrEmpty()
+    }
 
     fun get(type: KeyType): String? {
         val stored = sp.getString(type.prefKey, null) ?: return null
@@ -60,8 +63,13 @@ class SecretStore(context: Context) {
         return gen.generateKey()
     }
 
-    private companion object {
-        const val ALIAS = "voxcribe_api_keys"
-        const val TRANSFORMATION = "AES/GCM/NoPadding"
+    companion object {
+        fun isPlausibleXaiApiKey(value: String?): Boolean {
+            val normalized = value?.trim().orEmpty()
+            return normalized.length > 4 && normalized.startsWith("xai-")
+        }
+
+        private const val ALIAS = "voxcribe_api_keys"
+        private const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }
