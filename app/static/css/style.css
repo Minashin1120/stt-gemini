@@ -936,7 +936,7 @@ body.app-body {
 .form-text { color: var(--muted-color); }
 .status-pill { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 7px 13px; border-radius: 999px; background: var(--soft-surface); }
 .recording-indicator { display: inline-flex; align-items: center; color: #e24358; font-weight: 750; animation: recordingText 1.25s ease-in-out infinite; }
-.live-caption { width: 100%; max-width: 640px; min-height: 1.4em; padding: 6px 14px; border-radius: 10px; background: var(--soft-surface); font-style: italic; }
+#resultText.grok-live-active { background: var(--soft-surface); font-style: italic; }
 
 .result-card .card-header, .history-panel .card-header, .improve-card .card-header, .settings-card .card-header, .danger-zone .card-header { border-bottom: 1px solid var(--card-border); background: var(--card-bg) !important; }
 /* 結果カード: 後処理バーをクリップしない */

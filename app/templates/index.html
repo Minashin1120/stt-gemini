@@ -256,7 +256,6 @@
                     </button>
                 </div>
                 <button id="btnAbort" class="btn btn-outline-secondary btn-sm rounded-pill px-4 d-none"><i class="bi bi-stop-circle me-1"></i> 処理を停止</button>
-                <div id="liveCaption" class="live-caption small text-muted text-center d-none"></div>
             </div>
         </div>
 
@@ -1829,7 +1828,7 @@ document.addEventListener('DOMContentLoaded', () => {
         noise: document.getElementById('noiseSuppression'), rephrase: document.getElementById('allowRephraseCorrection'), filler: document.getElementById('allowFillerRemoval'), useAudio: document.getElementById('useAudioForImprove'),
         re: document.getElementById('btnReanalyze'), delBtn: document.getElementById('btnOpenDel'),
         hist: document.getElementById('historyContainer'), reset: document.getElementById('btnReset'),
-        abort: document.getElementById('btnAbort'), liveCaption: document.getElementById('liveCaption')
+        abort: document.getElementById('btnAbort')
     };
 
     // el の初期化後に登録する。これより前に el を参照すると
@@ -2900,6 +2899,7 @@ document.addEventListener('DOMContentLoaded', () => {
         grokLiveText = '';
         grokLiveFailed = false;
         grokLiveChannels = channels;
+        initText = (isAppendMode && el.res.value.trim()) ? el.res.value.trim() + "\n\n" : "";
         const qs = new URLSearchParams({
             sample_rate: String(Math.round(sampleRate) || 16000),
             encoding: 'pcm',
@@ -2921,10 +2921,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (processor && processor.port) {
                 processor.port.postMessage({ type: 'raw_stereo', value: true, channels });
             }
-            if (el.liveCaption) {
-                el.liveCaption.textContent = '';
-                el.liveCaption.classList.remove('d-none');
-            }
+            el.res.value = initText;
+            el.res.classList.add('grok-live-active');
         };
         grokLiveWs.onmessage = (ev) => {
             let d;
@@ -2934,15 +2932,19 @@ document.addEventListener('DOMContentLoaded', () => {
             // (両方使うと同じ内容が二重に表示・確定されてしまう)。
             if (chIdx !== 0) return;
             if (d.type === 'transcript.partial') {
-                if (el.liveCaption) el.liveCaption.textContent = d.text || '';
                 if (d.is_final && d.speech_final && d.text) {
                     grokLiveText += (grokLiveText ? '\n' : '') + d.text;
+                    el.res.value = initText + grokLiveText;
+                } else {
+                    el.res.value = initText + grokLiveText + (grokLiveText ? '\n' : '') + (d.text || '');
                 }
+                el.res.scrollTop = el.res.scrollHeight;
             } else if (d.type === 'transcript.done') {
                 // transcript.doneはセッション終了時に送られる、そのチャンネルの確定済み全文。
                 // speech_final境界の後に発話された末尾の言葉もここに含まれるため、
                 // 積み上げてきたテキストより常に優先する(権威あるソース)。
                 if (d.text) grokLiveText = d.text;
+                el.res.value = initText + grokLiveText;
             } else if (d.type === 'error') {
                 grokLiveFailed = true;
             }
@@ -2970,7 +2972,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try { ws.close(); } catch (_) {}
         }
         if (grokLiveWs === ws) grokLiveWs = null;
-        if (el.liveCaption) el.liveCaption.classList.add('d-none');
+        el.res.classList.remove('grok-live-active');
     }
 
     async function rec(append=false) {
@@ -2991,7 +2993,7 @@ document.addEventListener('DOMContentLoaded', () => {
         capturePeak = 0;
         if (grokLiveWs) { try { grokLiveWs.close(); } catch (_) {} grokLiveWs = null; }
         grokLiveText = ''; grokLiveFailed = false;
-        if (el.liveCaption) el.liveCaption.classList.add('d-none');
+        el.res.classList.remove('grok-live-active');
 
         try {
             // ユーザージェスチャー内で AudioContext を用意
@@ -3159,9 +3161,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if(audioStream){ audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
         if(audioContext){ try { audioContext.close(); } catch(_){} audioContext=null; }
         audioChunks=[]; floatChunks=[]; capturePeak=0;
-        if (grokLiveWs) { try { grokLiveWs.close(); } catch (_) {} grokLiveWs = null; }
+        if (grokLiveWs) {
+            try { grokLiveWs.close(); } catch (_) {}
+            grokLiveWs = null;
+            el.res.value = initText;
+        }
         grokLiveText = ''; grokLiveFailed = false;
-        if (el.liveCaption) el.liveCaption.classList.add('d-none');
+        el.res.classList.remove('grok-live-active');
         if (micLevelStatus) micLevelStatus.classList.add('d-none');
         el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
         el.pause.innerHTML='<i class="bi bi-pause-fill"></i>';
@@ -3205,6 +3211,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     // model='grok-live-transcribe'のまま送ってよい(サーバー側/transcribeがgrok-sttと
                     // 同じバッチ処理として扱う)。ensureApiKeyForModel でユーザーが別モデルに切り替えた
                     // 場合もその選択がそのまま使われる。
+                    // captureBackend='audio-worklet'でない場合はそもそもライブセッションを開始していない
+                    // (el.resは未変更のまま)ため、その場合はここでinitTextへ戻してはいけない。
+                    if (wasGrokLive && captureBackend === 'audio-worklet') el.res.value = initText;
                     upl(blob, recName);
                 }
             } catch (err) {
@@ -3268,7 +3277,6 @@ document.addEventListener('DOMContentLoaded', () => {
     async function finalizeLiveGrok(b, n) {
         rememberLocalAudio(b, n);
         hideErrorDownloadButton();
-        if (!isAppendMode) clearResultUiForNew();
         el.stat.innerText = "保存中...";
         const fd = new FormData();
         fd.append('audio_file', b, n);
@@ -3285,7 +3293,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             const data = await r.json();
-            initText = isAppendMode && el.res.value.trim() ? el.res.value.trim() + "\n\n" : "";
             el.res.value = initText + (data.text || '');
             el.stat.innerText = "完了";
             el.copy.disabled = el.re.disabled = el.delBtn.disabled = false;

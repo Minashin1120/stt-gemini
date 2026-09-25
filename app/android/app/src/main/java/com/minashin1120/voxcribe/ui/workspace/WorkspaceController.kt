@@ -145,7 +145,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
     private var liveToken: CancelToken? = null
     @Volatile private var liveText: String = ""
     @Volatile private var liveFailed = false
-    var liveCaption by mutableStateOf("")
+    @Volatile private var liveInitText: String = ""
 
     private var preparedNoiseOn: Boolean? = null
     private var micInfo: MicInfo? = null
@@ -393,8 +393,10 @@ class WorkspaceController(private val app: VoxcribeApp) {
         isPaused = false
         noiseSwitchEnabled = true
         recorder.onBlock = null
+        val hadLiveSession = liveSession != null
         liveSession?.cancel()
         stopGrokLiveState()
+        if (hadLiveSession) resultText = liveInitText
         scope.launch(Dispatchers.IO) { recorder.cancel() }
         latestBlock = null
         levelText = null
@@ -408,7 +410,8 @@ class WorkspaceController(private val app: VoxcribeApp) {
     private fun startGrokLiveSession(settings: MicSettings) {
         liveText = ""
         liveFailed = false
-        liveCaption = ""
+        liveInitText = if (isAppendMode && resultText.trim().isNotEmpty()) resultText.trim() + "\n\n" else ""
+        resultText = liveInitText
         liveSession = null
         val key = app.secrets.get(KeyType.XAI)
         if (key == null) {
@@ -428,16 +431,21 @@ class WorkspaceController(private val app: VoxcribeApp) {
             onPartial = { chIdx, text, isFinal, speechFinal ->
                 // 2マイクは同じ音源を別々に拾っているだけなので、表示・確定はchannel 0のみを使う
                 if (chIdx == 0) {
-                    liveCaption = text
                     if (isFinal && speechFinal && text.isNotEmpty()) {
                         liveText = if (liveText.isNotEmpty()) liveText + "\n" + text else text
+                        resultText = liveInitText + liveText
+                    } else {
+                        resultText = liveInitText + liveText + (if (liveText.isNotEmpty()) "\n" else "") + text
                     }
                 }
             },
             onFinalText = { chIdx, text ->
                 // transcript.doneはセッション終了時に送られる確定済み全文。speech_final境界の後に
                 // 発話された末尾の言葉も含まれるため、積み上げてきたテキストより常に優先する。
-                if (chIdx == 0 && text.isNotEmpty()) liveText = text
+                if (chIdx == 0 && text.isNotEmpty()) {
+                    liveText = text
+                    resultText = liveInitText + liveText
+                }
             },
             onError = { liveFailed = true },
         )
@@ -448,7 +456,6 @@ class WorkspaceController(private val app: VoxcribeApp) {
         liveToken = null
         liveText = ""
         liveFailed = false
-        liveCaption = ""
         recorder.onRawBlock = null
     }
 
@@ -500,6 +507,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
                         // WSが使えなかった/テキストが取れなかった場合は通常のバッチアップロードにフォールバック。
                         // model="grok-live-transcribe"のままでよい(Models.isGrokがtrueを返すため
                         // AiRunner.runSttは通常のGrokClient.transcribeバッチ経路をそのまま使う)。
+                        resultText = liveInitText // ライブ表示中の未確定テキストを消してから通常フローへ
                         upl(result.file, name)
                     }
                 } else {
@@ -520,7 +528,6 @@ class WorkspaceController(private val app: VoxcribeApp) {
     private suspend fun finalizeLiveGrok(blob: File, name: String, rawText: String) {
         rememberLocalAudio(blob, name)
         errorDownloadVisible = false
-        if (!isAppendMode) clearResultUiForNew()
         status = StatusView("保存中...")
         val text = withContext(Dispatchers.IO) { app.runner.applyWordReplacements(rawText) }
         val stored = withContext(Dispatchers.IO) {
@@ -539,7 +546,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
             prefs.lastAudioMime = AudioStore.MIME_BY_EXT[AudioStore.extOf(name)] ?: "audio/mpeg"
             if (text.isNotEmpty()) app.db.insertHistory("transcribe", "Live Audio (Grok)", "", text)
         }
-        resultText = if (isAppendMode && resultText.trim().isNotEmpty()) resultText.trim() + "\n\n" + text else text
+        resultText = liveInitText + text
         status = StatusView("完了")
         copyEnabled = true
         reanalyzeEnabled = true
