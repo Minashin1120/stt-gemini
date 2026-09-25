@@ -220,6 +220,7 @@
                                 <button class="custom-select-option" data-value="gemini-3-flash-preview" type="button">3.0 Flash</button>
                                 <button class="custom-select-option" data-value="gemini-3.1-flash-lite" type="button">3.1 Flash-Lite</button>
                                 <button class="custom-select-option" data-value="grok-stt" type="button">Grok STT</button>
+                                <button class="custom-select-option" data-value="grok-live-transcribe" type="button">Grok Live</button>
                                 <button class="custom-select-option" data-value="gpt-transcribe" type="button">GPT-Trans.</button>
                                 <button class="custom-select-option" data-value="gpt-live-transcribe" type="button">GPT-Live</button>
                             </div>
@@ -255,6 +256,7 @@
                     </button>
                 </div>
                 <button id="btnAbort" class="btn btn-outline-secondary btn-sm rounded-pill px-4 d-none"><i class="bi bi-stop-circle me-1"></i> 処理を停止</button>
+                <div id="liveCaption" class="live-caption small text-muted text-center d-none"></div>
             </div>
         </div>
 
@@ -633,7 +635,7 @@ let _akOriginalModel = null;
 
 function getApiKeyType(model) {
     if (model === 'gpt-transcribe' || model === 'gpt-live-transcribe') return 'openai';
-    return model === 'grok-stt' ? 'xai' : 'gemini';
+    return (model === 'grok-stt' || model === 'grok-live-transcribe') ? 'xai' : 'gemini';
 }
 
 function showView(viewId) {
@@ -792,7 +794,10 @@ async function showSwitchView(currentModel) {
             );
         }
         if (data.has_xai_key) {
-            models.push({ label: 'Grok STT', value: 'grok-stt' });
+            models.push(
+                { label: 'Grok STT', value: 'grok-stt' },
+                { label: 'Grok Live', value: 'grok-live-transcribe' }
+            );
         }
 
         if (models.length === 0) {
@@ -902,6 +907,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let abortController = null;
     let currentTaskId = null;
     let cancellationInProgress = false;
+    // Grok Live (リアルタイム文字起こし) の状態
+    let grokLiveWs = null, grokLiveText = '', grokLiveFailed = false, grokLiveChannels = 1;
     let visPeakEma = 0.02;
     let capturePeak = 0;
     let lastMicSettings = null;
@@ -1462,7 +1469,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function ensureCaptureWorkletModule(context) {
         if (!context.audioWorklet || typeof AudioWorkletNode === 'undefined') return false;
         if (captureWorkletContext !== context) {
-            await context.audioWorklet.addModule('/static/js/pcm-capture-worklet.js?v=3');
+            await context.audioWorklet.addModule('/static/js/pcm-capture-worklet.js?v=4');
             captureWorkletContext = context;
         }
         return true;
@@ -1483,6 +1490,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     const message = event.data || {};
                     if (message.type === 'pcm' && message.buffer) {
                         appendCapturedPcm(new Float32Array(message.buffer));
+                    } else if (message.type === 'raw_pcm' && message.buffer) {
+                        // リアルタイム配信用の生ステレオPCM。WSが開いていなければ黙って捨てる
+                        // (ファイル録音=appendCapturedPcm側は常に継続するので安全網になる)。
+                        if (grokLiveWs && grokLiveWs.readyState === WebSocket.OPEN) {
+                            grokLiveWs.send(message.buffer);
+                        }
                     } else if (message.type === 'flushed' && captureFlushResolve) {
                         const resolve = captureFlushResolve;
                         captureFlushResolve = null;
@@ -1816,7 +1829,7 @@ document.addEventListener('DOMContentLoaded', () => {
         noise: document.getElementById('noiseSuppression'), rephrase: document.getElementById('allowRephraseCorrection'), filler: document.getElementById('allowFillerRemoval'), useAudio: document.getElementById('useAudioForImprove'),
         re: document.getElementById('btnReanalyze'), delBtn: document.getElementById('btnOpenDel'),
         hist: document.getElementById('historyContainer'), reset: document.getElementById('btnReset'),
-        abort: document.getElementById('btnAbort')
+        abort: document.getElementById('btnAbort'), liveCaption: document.getElementById('liveCaption')
     };
 
     // el の初期化後に登録する。これより前に el を参照すると
@@ -2134,6 +2147,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     let currentModel = 'gemini-3.6-flash';
     function setModel(value) {
+        // Grok Liveのリアルタイムセッション中にモデルを切り替えると、開いたままのWebSocketが
+        // 停止処理から見えなくなり(wasGrokLiveの判定がgetModel()依存のため)、孤立してしまう。
+        if (grokLiveWs && isRecording) {
+            showToast('ライブ文字起こし中はモデルを変更できません。録音を停止してから変更してください', true);
+            return;
+        }
         localStorage.setItem('stt_t_' + currentModel, el.think.value);
         localStorage.setItem('stt_m', value);
         currentModel = value;
@@ -2143,11 +2162,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const savedThink = localStorage.getItem('stt_t_' + currentModel);
         if (savedThink) el.think.value = savedThink;
         updatePostprocessBar();
-        const noThinkModels = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
+        const noThinkModels = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe'];
         if (noThinkModels.includes(value)) {
             if (thinkingOpen) thoughtCol.hide();
             el.think.disabled = true;
-            el.think.title = value === 'grok-stt' ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
+            el.think.title = (value === 'grok-stt' || value === 'grok-live-transcribe') ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
         } else {
             el.think.disabled = false;
             el.think.title = '';
@@ -2195,10 +2214,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (textEl && activeOpt) textEl.textContent = activeOpt.textContent;
     const savedThink = localStorage.getItem('stt_t_' + currentModel);
     if (savedThink) el.think.value = savedThink;
-    const noThinkModels = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
+    const noThinkModels = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe'];
     if (noThinkModels.includes(currentModel)) {
         el.think.disabled = true;
-        el.think.title = currentModel === 'grok-stt' ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
+        el.think.title = (currentModel === 'grok-stt' || currentModel === 'grok-live-transcribe') ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
         if (thinkingOpen) thoughtCol.hide();
     }
     updatePostprocessBar();
@@ -2526,7 +2545,7 @@ document.addEventListener('DOMContentLoaded', () => {
             el.res.value = initText;
         }
 
-        const noThinkModels2 = ['grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'];
+        const noThinkModels2 = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe'];
         if (el.think.value !== 'MINIMAL' && !noThinkModels2.includes(getModel())) thoughtCol.show();
         el.abort.classList.remove('d-none');
     }
@@ -2601,6 +2620,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const _lvl = el.think.value;
         if (_mdl === 'grok-stt') {
             el.tho.innerText = '[Grok STT は思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
+        } else if (_mdl === 'grok-live-transcribe') {
+            el.tho.innerText = '[Grok Live はリアルタイムのWebSocketで受信済みです(バッチアップロードにフォールバックしました)。]';
         } else if (_mdl === 'gpt-transcribe' || _mdl === 'gpt-live-transcribe') {
             el.tho.innerText = '[OpenAIモデルは思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
         } else if (_mdl === 'gemini-3.1-flash-lite' && (_lvl === 'LOW' || _lvl === 'MEDIUM') && !el.tho.innerText.trim()) {
@@ -2875,6 +2896,83 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function startGrokLiveSession(channels, sampleRate) {
+        grokLiveText = '';
+        grokLiveFailed = false;
+        grokLiveChannels = channels;
+        const qs = new URLSearchParams({
+            sample_rate: String(Math.round(sampleRate) || 16000),
+            encoding: 'pcm',
+            interim_results: 'true',
+            endpointing: '400',
+            multichannel: channels > 1 ? 'true' : 'false',
+            channels: String(channels),
+        });
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        try {
+            grokLiveWs = new WebSocket(`${proto}://${location.host}/ws/grok_live?${qs.toString()}`);
+        } catch (_) {
+            grokLiveWs = null;
+            grokLiveFailed = true;
+            return;
+        }
+        grokLiveWs.binaryType = 'arraybuffer';
+        grokLiveWs.onopen = () => {
+            if (processor && processor.port) {
+                processor.port.postMessage({ type: 'raw_stereo', value: true, channels });
+            }
+            if (el.liveCaption) {
+                el.liveCaption.textContent = '';
+                el.liveCaption.classList.remove('d-none');
+            }
+        };
+        grokLiveWs.onmessage = (ev) => {
+            let d;
+            try { d = JSON.parse(ev.data); } catch (_) { return; }
+            const chIdx = d.channel_index || 0;
+            // 2マイクは同じ音源を別々に拾っているだけなので、表示・確定はchannel 0のみを使う
+            // (両方使うと同じ内容が二重に表示・確定されてしまう)。
+            if (chIdx !== 0) return;
+            if (d.type === 'transcript.partial') {
+                if (el.liveCaption) el.liveCaption.textContent = d.text || '';
+                if (d.is_final && d.speech_final && d.text) {
+                    grokLiveText += (grokLiveText ? '\n' : '') + d.text;
+                }
+            } else if (d.type === 'transcript.done') {
+                // transcript.doneはセッション終了時に送られる、そのチャンネルの確定済み全文。
+                // speech_final境界の後に発話された末尾の言葉もここに含まれるため、
+                // 積み上げてきたテキストより常に優先する(権威あるソース)。
+                if (d.text) grokLiveText = d.text;
+            } else if (d.type === 'error') {
+                grokLiveFailed = true;
+            }
+        };
+        grokLiveWs.onerror = () => { grokLiveFailed = true; };
+        grokLiveWs.onclose = () => {
+            if (processor && processor.port) {
+                try { processor.port.postMessage({ type: 'raw_stereo', value: false }); } catch (_) {}
+            }
+        };
+    }
+
+    async function finishGrokLiveSession() {
+        if (!grokLiveWs) return;
+        const ws = grokLiveWs;
+        if (ws.readyState === WebSocket.OPEN) {
+            try { ws.send(JSON.stringify({ type: 'audio.done' })); } catch (_) {}
+            await new Promise((resolve) => {
+                let done = false;
+                const finish = () => { if (done) return; done = true; resolve(); };
+                ws.addEventListener('close', finish, { once: true });
+                window.setTimeout(finish, 6000);
+            });
+        } else {
+            try { ws.close(); } catch (_) {}
+        }
+        if (grokLiveWs === ws) grokLiveWs = null;
+        if (el.liveCaption) el.liveCaption.classList.add('d-none');
+    }
+
     async function rec(append=false) {
         isAppendMode=append;
         if(!append) clearResultUiForNew();
@@ -2891,6 +2989,9 @@ document.addEventListener('DOMContentLoaded', () => {
         audioChunks = [];
         floatChunks = [];
         capturePeak = 0;
+        if (grokLiveWs) { try { grokLiveWs.close(); } catch (_) {} grokLiveWs = null; }
+        grokLiveText = ''; grokLiveFailed = false;
+        if (el.liveCaption) el.liveCaption.classList.add('d-none');
 
         try {
             // ユーザージェスチャー内で AudioContext を用意
@@ -2954,6 +3055,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     graphKeepAliveRecorder = null;
                     console.warn('[STT graph keepalive unavailable]', keepAliveError);
                 }
+            }
+
+            if (getModel() === 'grok-live-transcribe' && captureBackend === 'audio-worklet') {
+                startGrokLiveSession(inCh, audioContext.sampleRate);
             }
 
             startVisualizer();
@@ -3054,6 +3159,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if(audioStream){ audioStream.getTracks().forEach(t=>t.stop()); audioStream=null; }
         if(audioContext){ try { audioContext.close(); } catch(_){} audioContext=null; }
         audioChunks=[]; floatChunks=[]; capturePeak=0;
+        if (grokLiveWs) { try { grokLiveWs.close(); } catch (_) {} grokLiveWs = null; }
+        grokLiveText = ''; grokLiveFailed = false;
+        if (el.liveCaption) el.liveCaption.classList.add('d-none');
         if (micLevelStatus) micLevelStatus.classList.add('d-none');
         el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
         el.pause.innerHTML='<i class="bi bi-pause-fill"></i>';
@@ -3061,8 +3169,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     el.stop.onclick=async()=>{
         isRecording=false;
+        const wasGrokLive = getModel() === 'grok-live-transcribe';
         setCapturePaused(true);
         await flushCaptureNode();
+        if (wasGrokLive) await finishGrokLiveSession();
         if (el.noise) el.noise.disabled = false;
         el.recNew.disabled=el.recAdd.disabled=false; el.stop.disabled=el.pause.disabled=el.cancel.disabled=true;
         el.pause.innerHTML='<i class="bi bi-pause-fill"></i>';
@@ -3087,7 +3197,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 capturePeak = 0;
                 lastMicSettings = null;
                 console.log('[STT] applied makeup gain', gain.toFixed(2), 'rawPeak', peakBefore, 'agcOff', agcOff);
-                upl(blob, fmt === 'wav' ? 'rec.wav' : 'rec.mp3');
+                const recName = fmt === 'wav' ? 'rec.wav' : 'rec.mp3';
+                if (wasGrokLive && !grokLiveFailed && grokLiveText) {
+                    finalizeLiveGrok(blob, recName);
+                } else {
+                    // WSが使えなかった/テキストが取れなかった場合は通常のバッチアップロードにフォールバック。
+                    // model='grok-live-transcribe'のまま送ってよい(サーバー側/transcribeがgrok-sttと
+                    // 同じバッチ処理として扱う)。ensureApiKeyForModel でユーザーが別モデルに切り替えた
+                    // 場合もその選択がそのまま使われる。
+                    upl(blob, recName);
+                }
             } catch (err) {
                 floatChunks = [];
                 lastMicSettings = null;
@@ -3138,6 +3257,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             if (!isAppendMode) loadHistory();
+            el.stat.innerText = "通信エラー";
+            showErrorDownloadButton(true);
+            showToast("通信エラー", true);
+        }
+    }
+
+    /** Grok Live: WebSocketで受信済みの確定テキストを音声と一緒にサーバーへ送って保存する。
+     * 既存のAI呼び出し(/transcribe)を経由しない: 文字起こしは既にWebSocket上で完了しているため。 */
+    async function finalizeLiveGrok(b, n) {
+        rememberLocalAudio(b, n);
+        hideErrorDownloadButton();
+        if (!isAppendMode) clearResultUiForNew();
+        el.stat.innerText = "保存中...";
+        const fd = new FormData();
+        fd.append('audio_file', b, n);
+        fd.append('text', grokLiveText);
+        fd.append('is_append', isAppendMode ? '1' : '0');
+        try {
+            const r = await csrfFetch('/transcribe_live_finalize', { method: 'POST', body: fd });
+            if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                if (!isAppendMode) loadHistory();
+                el.stat.innerText = "エラー";
+                showErrorDownloadButton(true);
+                showToast(err.error || "エラーが発生しました", true);
+                return;
+            }
+            const data = await r.json();
+            initText = isAppendMode && el.res.value.trim() ? el.res.value.trim() + "\n\n" : "";
+            el.res.value = initText + (data.text || '');
+            el.stat.innerText = "完了";
+            el.copy.disabled = el.re.disabled = el.delBtn.disabled = false;
+            syncPostprocessButtons();
+            showToast("完了");
+            loadHistory();
+        } catch (e) {
             el.stat.innerText = "通信エラー";
             showErrorDownloadButton(true);
             showToast("通信エラー", true);

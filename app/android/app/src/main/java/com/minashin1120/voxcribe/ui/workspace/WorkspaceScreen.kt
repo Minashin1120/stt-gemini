@@ -254,6 +254,19 @@ private fun InputCard(ctrl: WorkspaceController) {
                     BsButton("音声をダウンロード", { ctrl.downloadLocalAudio() }, variant = BtnVariant.OUTLINE_PRIMARY, size = BtnSize.SM, icon = Icons.Outlined.Download, pill = true)
                 }
             }
+            if (ctrl.isRecording && Models.isGrokLive(ctrl.model)) {
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(T.c.softSurface).padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        ctrl.liveCaption.ifEmpty { "…" },
+                        color = T.c.muted,
+                        fontSize = 13.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    )
+                }
+            }
             if (ctrl.abortVisible) {
                 Spacer(Modifier.height(8.dp))
                 BsButton("処理を停止", { ctrl.abortProcessing() }, variant = BtnVariant.OUTLINE_SECONDARY, size = BtnSize.SM, icon = Icons.Outlined.StopCircle, pill = true, enabled = ctrl.abortEnabled)

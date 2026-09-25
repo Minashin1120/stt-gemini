@@ -8,10 +8,12 @@ import secrets
 import uuid
 import logging
 import fcntl
+from urllib.parse import urlencode
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response, stream_with_context, session, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_sqlalchemy import SQLAlchemy
+from flask_sock import Sock
 from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -69,6 +71,7 @@ db = SQLAlchemy(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'welcome'
+sock = Sock(app)
 
 fernet = Fernet(os.getenv('ENCRYPTION_KEY').encode())
 
@@ -101,9 +104,15 @@ ALLOWED_MODELS = {
     'gemini-3-flash-preview',
     'gemini-3.1-flash-lite',
     'grok-stt',
+    'grok-live-transcribe',
     'gpt-transcribe',
     'gpt-live-transcribe',
 }
+
+# --- Grok Live (WebSocket streaming) settings ---
+GROK_LIVE_ALLOWED_ORIGINS = {f"https://{os.getenv('GROK_LIVE_HOST', 'stt-gemini.minashin1120.com')}"}
+GROK_LIVE_MAX_SECONDS = 1800
+GROK_LIVE_TASK_REFRESH_SECS = 60
 
 def validate_model(model_name):
     return model_name if model_name in ALLOWED_MODELS else 'gemini-3.5-flash'
@@ -427,6 +436,23 @@ def get_word_list_context(user_id):
     context += "--------------------------------------------------\n"
     return context
 
+def apply_word_replacements(user_id, text):
+    if not text:
+        return text
+    try:
+        with app.app_context():
+            active_sets = WordSet.query.filter_by(user_id=user_id, is_active=True).all()
+            if not active_sets:
+                return text
+            import re
+            for s in active_sets:
+                for w in s.words:
+                    if w.reading and w.replacement:
+                        text = re.sub(re.escape(w.reading), w.replacement, text, flags=re.IGNORECASE)
+    except Exception as e:
+        logger.warning(f"Word replacement error: {e}")
+    return text
+
 def get_audio_metadata(filename, mimetype=None):
     safe_name = secure_filename(filename or "")
     _, ext = os.path.splitext(safe_name)
@@ -439,6 +465,37 @@ def get_thinking_level(value):
 
 def generate_audio_filename(user_id, extension):
     return f"user_{user_id}_{time.time_ns()}_{secrets.token_hex(4)}{extension}"
+
+def save_uploaded_audio_file(file, is_append):
+    """録音/アップロードされた音声ファイルを保存し、(filepath, mime_type) を返す。
+    新規録音時は以前の履歴・音声ファイルをクリアする。対応していない形式なら None を返す。"""
+    ext, mime_type = get_audio_metadata(file.filename, file.mimetype)
+    if not ext:
+        return None, None, None
+
+    if not is_truthy(is_append):
+        History.query.filter_by(user_id=current_user.id).delete()
+        db.session.commit()
+        user_prefix = f"user_{current_user.id}_"
+        if os.path.exists(app.config['UPLOAD_FOLDER']):
+            for f in os.listdir(app.config['UPLOAD_FOLDER']):
+                if f.startswith(user_prefix):
+                    try:
+                        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
+                    except Exception as e:
+                        logger.warning(f"clear_on_new file removal error: {e}")
+        session.pop('last_audio_file', None)
+        session.pop('last_audio_mime', None)
+
+    filename = generate_audio_filename(current_user.id, ext)
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+    session['last_audio_file'] = filename
+    session['last_audio_mime'] = mime_type
+    return filename, filepath, mime_type
 
 def resolve_user_upload_path(filename, user_id):
     if not filename or not filename.startswith(f"user_{user_id}_"):
@@ -863,7 +920,7 @@ def check_api_key():
     model = data.get('model', '')
     if model in ('gpt-transcribe', 'gpt-live-transcribe'):
         has_key = current_user.encrypted_openai_api_key is not None
-    elif model == 'grok-stt':
+    elif model in ('grok-stt', 'grok-live-transcribe'):
         has_key = current_user.encrypted_xai_api_key is not None
     else:
         has_key = current_user.encrypted_api_key is not None
@@ -1262,34 +1319,9 @@ def transcribe():
     file = request.files.get('audio_file')
     if not file: return jsonify({'error': 'No file'}), 400
 
-    # 受信ファイル名は必ず安全化する。拡張子は許可済みのものだけ使う。
-    ext, mime_type = get_audio_metadata(file.filename, file.mimetype)
-    if not ext:
+    filename, filepath, mime_type = save_uploaded_audio_file(file, request.form.get('is_append'))
+    if not filename:
         return jsonify({'error': '対応していない音声形式です'}), 400
-    
-    # 新規録音の場合、以前の履歴と音声ファイルをクリアしてから処理する
-    if not is_truthy(request.form.get('is_append')):
-        History.query.filter_by(user_id=current_user.id).delete()
-        db.session.commit()
-        user_prefix = f"user_{current_user.id}_"
-        if os.path.exists(app.config['UPLOAD_FOLDER']):
-            for f in os.listdir(app.config['UPLOAD_FOLDER']):
-                if f.startswith(user_prefix):
-                    try:
-                        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], f))
-                    except Exception as e:
-                        logger.warning(f"clear_on_new file removal error: {e}")
-        session.pop('last_audio_file', None)
-        session.pop('last_audio_mime', None)
-    
-    filename = generate_audio_filename(current_user.id, ext)
-    if not os.path.exists(app.config['UPLOAD_FOLDER']):
-        os.makedirs(app.config['UPLOAD_FOLDER'])
-        
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
-    session['last_audio_file'] = filename
-    session['last_audio_mime'] = mime_type
 
     if model in ('gpt-transcribe', 'gpt-live-transcribe'):
         api_key = current_user.get_openai_api_key()
@@ -1307,10 +1339,12 @@ def transcribe():
         thread.start()
         return create_stream_response(stream_task_updates(task_id), task_id)
     
-    if model == 'grok-stt':
+    if model in ('grok-stt', 'grok-live-transcribe'):
+        # grok-live-transcribeは通常WebSocket(/ws/grok_live)経由だが、ファイルアップロード等で
+        # ここに来た場合は静的ファイルなのでバッチのGrok STTとして扱う。
         api_key = current_user.get_xai_api_key()
         if not api_key: return jsonify({'error': 'xAI API Key not set. Go to Settings to configure it.'}), 400
-        
+
         task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
         thread = threading.Thread(
             target=process_grok_stt_background,
@@ -1360,6 +1394,198 @@ def transcribe():
     thread.start()
     return create_stream_response(stream_task_updates(task_id), task_id)
 
+
+# --- Grok Live (リアルタイム文字起こし, WebSocket) ---
+
+def _grok_live_validated_params():
+    """クライアントからのクエリパラメータをホワイトリストで検証し、xAIへ転送するdictを返す。
+    modelは常にこちら側で固定するのでここでは扱わない。"""
+    args = request.args
+    params = {}
+
+    encoding = args.get('encoding', 'pcm')
+    if encoding not in ('pcm', 'mulaw', 'alaw'):
+        encoding = 'pcm'
+    params['encoding'] = encoding
+
+    try:
+        sample_rate = int(args.get('sample_rate', 16000))
+    except (TypeError, ValueError):
+        sample_rate = 16000
+    params['sample_rate'] = max(8000, min(sample_rate, 48000))
+
+    params['interim_results'] = 'true' if is_truthy(args.get('interim_results')) else 'false'
+
+    try:
+        endpointing = int(args.get('endpointing', 400))
+    except (TypeError, ValueError):
+        endpointing = 400
+    params['endpointing'] = max(0, min(endpointing, 5000))
+
+    language = (args.get('language') or '').strip()[:16]
+    if language:
+        params['language'] = language
+
+    params['diarize'] = 'true' if is_truthy(args.get('diarize')) else 'false'
+    params['filler_words'] = 'true' if is_truthy(args.get('filler_words')) else 'false'
+
+    multichannel = is_truthy(args.get('multichannel'))
+    try:
+        channels = int(args.get('channels', 1))
+    except (TypeError, ValueError):
+        channels = 1
+    channels = max(1, min(channels, 8))
+    if multichannel and channels < 2:
+        multichannel = False
+    params['multichannel'] = 'true' if multichannel else 'false'
+    params['channels'] = channels
+
+    keyterms = [k.strip()[:50] for k in args.getlist('keyterm') if k.strip()][:100]
+    if keyterms:
+        params['keyterm'] = keyterms
+
+    return params
+
+@sock.route('/ws/grok_live')
+def ws_grok_live(ws):
+    # flask-sockはソケットをWebSocketへ昇格させてから本体を実行するため、
+    # @login_requiredのリダイレクトは配信できない。ここで手動チェックする。
+    if not current_user.is_authenticated:
+        ws.close()
+        return
+
+    # WebSocketのハンドシェイクはCSRFトークンの対象外(protect_csrfはPOST等のみ検査)かつ
+    # Same-Origin Policyの制約も受けないため、Originを自前で検証する(CSWSH対策)。
+    if request.headers.get('Origin', '') not in GROK_LIVE_ALLOWED_ORIGINS:
+        ws.close()
+        return
+
+    if not check_user_model_rate_limit():
+        ws.close()
+        return
+
+    api_key = current_user.get_xai_api_key()
+    if not api_key:
+        try: ws.send(json.dumps({"type": "error", "message": "xAI API Key not set. Go to Settings to configure it."}))
+        except Exception: pass
+        ws.close()
+        return
+
+    try:
+        task_id = create_task(current_user.id, "transcribe_live", "Live Audio (Grok)", "grok-live-transcribe")
+    except ActiveTaskError:
+        try: ws.send(json.dumps({"type": "error", "message": "別の処理が実行中です。完了後に再度お試しください。"}))
+        except Exception: pass
+        ws.close()
+        return
+
+    user_id = current_user.id
+    params = _grok_live_validated_params()
+    xai_url = "wss://api.x.ai/v1/stt?" + urlencode({**params, "model": "grok-voice-transcribe-2.0"}, doseq=True)
+
+    import websocket as ws_client
+    try:
+        xai_ws = ws_client.create_connection(
+            xai_url, header=[f"Authorization: Bearer {api_key}"], timeout=10
+        )
+    except Exception as e:
+        logger.error(f"Grok Live: xAI接続失敗 task={task_id}: {e}")
+        try: ws.send(json.dumps({"type": "error", "message": "xAI STTへの接続に失敗しました。"}))
+        except Exception: pass
+        update_task(task_id, status='error', error='xAI STTへの接続に失敗しました。')
+        ws.close()
+        return
+
+    stop_event = threading.Event()
+
+    def relay_xai_to_browser():
+        """xAI -> ブラウザへの唯一の送信経路(ws.send()を呼ぶのはこのスレッドのみ)。"""
+        try:
+            while not stop_event.is_set():
+                msg = xai_ws.recv()
+                if not msg:
+                    break
+                ws.send(msg)
+        except Exception as e:
+            try:
+                ws.send(json.dumps({"type": "error", "message": str(e)}))
+            except Exception:
+                pass
+        finally:
+            stop_event.set()
+
+    relay_thread = threading.Thread(target=relay_xai_to_browser, daemon=True)
+    relay_thread.start()
+
+    session_start = time.time()
+    last_refresh = session_start
+    had_error = False
+    try:
+        while not stop_event.is_set():
+            data = ws.receive(timeout=5)
+            if data is not None:
+                if isinstance(data, (bytes, bytearray)):
+                    xai_ws.send_binary(data)
+                else:
+                    try:
+                        xai_ws.send(data)
+                    except Exception:
+                        break
+                    try:
+                        if json.loads(data).get("type") == "audio.done":
+                            # audio.doneを転送した後、xAIが最後のtranscript.doneを送って
+                            # relay_threadが自然に終わる(=xai_ws.recv()が空を返す)のを少し待つ。
+                            # ここで即座にxai_wsを閉じると末尾の文字起こしが失われる。
+                            relay_thread.join(timeout=4)
+                            break
+                    except (ValueError, TypeError):
+                        pass
+            elif ws.connected is False:
+                break
+
+            now = time.time()
+            if now - last_refresh > GROK_LIVE_TASK_REFRESH_SECS:
+                update_task(task_id, phase='streaming')
+                last_refresh = now
+            if now - session_start > GROK_LIVE_MAX_SECONDS:
+                try: xai_ws.send(json.dumps({"type": "finalize"}))
+                except Exception: pass
+                relay_thread.join(timeout=4)
+                break
+    except Exception as e:
+        had_error = True
+        logger.warning(f"Grok Live: relay error task={task_id}: {e}")
+    finally:
+        stop_event.set()
+        try: xai_ws.close()
+        except Exception: pass
+        relay_thread.join(timeout=5)
+        if had_error:
+            update_task(task_id, status='error', error='xAI STT接続でエラーが発生しました。')
+        else:
+            update_task(task_id, status='done')
+        try: ws.close()
+        except Exception: pass
+
+@app.route('/transcribe_live_finalize', methods=['POST'])
+@login_required
+def transcribe_live_finalize():
+    # このエンドポイント自体はcreate_task()を呼ばない(バックグラウンド処理を伴わない同期処理のため)。
+    # /ws/grok_liveのセッション終了直後に呼ばれるが、そのfinallyブロックが
+    # アクティブタスクロックを解放し終わる前にここへ到達することがあるため、
+    # reject_if_active_task()は呼ばない(呼ぶと直前の正常終了なのに409になり得る)。
+    file = request.files.get('audio_file')
+    if not file: return jsonify({'error': 'No file'}), 400
+
+    filename, filepath, mime_type = save_uploaded_audio_file(file, request.form.get('is_append'))
+    if not filename:
+        return jsonify({'error': '対応していない音声形式です'}), 400
+
+    text = (request.form.get('text') or '').strip()
+    text = apply_word_replacements(current_user.id, text)
+    save_history(current_user.id, "transcribe", "Live Audio (Grok)", '', text)
+    return jsonify({'text': text})
+
 @app.route('/reanalyze', methods=['POST'])
 @login_required
 def reanalyze():
@@ -1390,10 +1616,10 @@ def reanalyze():
         thread.start()
         return create_stream_response(stream_task_updates(task_id), task_id)
     
-    if model == 'grok-stt':
+    if model in ('grok-stt', 'grok-live-transcribe'):
         api_key = current_user.get_xai_api_key()
         if not api_key: return jsonify({'error': 'xAI API Key not set'}), 400
-        
+
         task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
         thread = threading.Thread(
             target=process_grok_stt_background,
@@ -1503,7 +1729,7 @@ def improve():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
-    if model in ('grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe'):
         model = 'gemini-3.5-flash'  # Grok/OpenAI STT cannot do text improvement
     task_id = create_task(current_user.id, "improve", instruction, model)
     thread = threading.Thread(
@@ -1537,7 +1763,7 @@ def correct_rephrase():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
-    if model in ('grok-stt', 'gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe'):
         model = 'gemini-3.5-flash'  # Grok/OpenAI STT cannot do text correction
     summary = "Rephrase correction (text only)"
     task_id = create_task(current_user.id, "correct_rephrase", summary, model)
@@ -1783,7 +2009,7 @@ def upload_complete():
     ext, mime_type = get_audio_metadata(original_filename)
     if model in ('gpt-transcribe', 'gpt-live-transcribe'):
         max_audio_bytes = MAX_OPENAI_AUDIO_BYTES
-    elif model == 'grok-stt':
+    elif model in ('grok-stt', 'grok-live-transcribe'):
         max_audio_bytes = MAX_XAI_AUDIO_BYTES
     else:
         max_audio_bytes = MAX_GEMINI_AUDIO_BYTES
@@ -1856,7 +2082,7 @@ def upload_complete():
         thread.start()
         return create_stream_response(stream_task_updates(task_id), task_id)
 
-    if model == 'grok-stt':
+    if model in ('grok-stt', 'grok-live-transcribe'):
         api_key = current_user.get_xai_api_key()
         if not api_key:
             return jsonify({'error': 'xAI API Key not set. Go to Settings to configure it.'}), 400
@@ -2112,17 +2338,7 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
         if task_is_cancelled(task_id):
             return
 
-        # Apply word replacements server-side (same as Grok)
-        try:
-            import re
-            with app.app_context():
-                active_sets = WordSet.query.filter_by(user_id=user_id, is_active=True).all()
-                for s in active_sets:
-                    for w in s.words:
-                        if w.reading and w.replacement:
-                            full_text = re.sub(re.escape(w.reading), w.replacement, full_text, flags=re.IGNORECASE)
-        except Exception as e:
-            logger.warning(f"Word replacement error: {e}")
+        full_text = apply_word_replacements(user_id, full_text)
 
         update_task(task_id, status='done', thought='', result=full_text)
         save_history(user_id, action_type, input_summary, '', full_text)
@@ -2265,18 +2481,7 @@ def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepa
         if task_is_cancelled(task_id):
             return
 
-        # Apply word replacements
-        text = full_transcript
-        try:
-            import re
-            with app.app_context():
-                active_sets = WordSet.query.filter_by(user_id=user_id, is_active=True).all()
-                for s in active_sets:
-                    for w in s.words:
-                        if w.reading and w.replacement:
-                            text = re.sub(re.escape(w.reading), w.replacement, text, flags=re.IGNORECASE)
-        except Exception as e:
-            logger.warning(f"Word replacement error: {e}")
+        text = apply_word_replacements(user_id, full_transcript)
 
         update_task(task_id, status='done', thought='', result=text)
         save_history(user_id, action_type, input_summary, '', text)
@@ -2317,6 +2522,7 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
             response = requests.post(
                 url,
                 headers={"Authorization": f"Bearer {api_key}"},
+                data={'model': 'grok-voice-transcribe-2.0'},
                 files=files,
                 timeout=(10, 600)
             )
@@ -2342,19 +2548,7 @@ def process_grok_stt_background(task_id, api_key, audio_filepath, user_id, actio
         text = result.get('text', '')
         update_task(task_id, phase='transcribing')
 
-        # Apply word replacements server-side (custom vocabulary)
-        try:
-            with app.app_context():
-                word_list_context = get_word_list_context(user_id)
-                if word_list_context:
-                    import re
-                    active_sets = WordSet.query.filter_by(user_id=user_id, is_active=True).all()
-                    for s in active_sets:
-                        for w in s.words:
-                            if w.reading and w.replacement:
-                                text = re.sub(re.escape(w.reading), w.replacement, text, flags=re.IGNORECASE)
-        except Exception as e:
-            logger.warning(f"Word replacement error: {e}")
+        text = apply_word_replacements(user_id, text)
 
         if task_is_cancelled(task_id):
             return

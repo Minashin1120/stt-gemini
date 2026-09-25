@@ -53,6 +53,9 @@ class NativeRecorder(private val cacheDir: File) {
     /** ビジュアライザー用: 直近ブロックのモノラルサンプル */
     @Volatile var onBlock: ((FloatArray) -> Unit)? = null
 
+    /** リアルタイム配信用(Grok Live): ダウンミックス前の生インターリーブfloatとチャンネル数。onBlockとは独立して発火する。 */
+    @Volatile var onRawBlock: ((FloatArray, Int) -> Unit)? = null
+
     /** 録音開始後に実際にルーティングされた入力が内蔵マイクか（取得できない端末は null） */
     @Volatile var routedToBuiltIn: Boolean? = null
         private set
@@ -188,6 +191,7 @@ class NativeRecorder(private val cacheDir: File) {
                     System.arraycopy(buf, 0, mono, 0, nf)
                 }
                 onBlock?.invoke(mono.copyOf(nf))
+                onRawBlock?.invoke(buf.copyOf(n), ch)
             }
         }, "voxcribe-recorder").apply {
             priority = Thread.MAX_PRIORITY

@@ -16,6 +16,7 @@ object Models {
         ModelOption("gemini-3-flash-preview", "3.0 Flash"),
         ModelOption("gemini-3.1-flash-lite", "3.1 Flash-Lite"),
         ModelOption("grok-stt", "Grok STT"),
+        ModelOption("grok-live-transcribe", "Grok Live"),
         ModelOption("gpt-transcribe", "GPT-Trans."),
         ModelOption("gpt-live-transcribe", "GPT-Live"),
     )
@@ -35,7 +36,9 @@ object Models {
 
     fun isLite(model: String) = model == "gemini-3.5-flash-lite" || model == "gemini-3.1-flash-lite"
 
-    fun isGrok(model: String) = model == "grok-stt"
+    fun isGrok(model: String) = model == "grok-stt" || model == "grok-live-transcribe"
+
+    fun isGrokLive(model: String) = model == "grok-live-transcribe"
 
     fun isOpenAi(model: String) = model == "gpt-transcribe" || model == "gpt-live-transcribe"
 
