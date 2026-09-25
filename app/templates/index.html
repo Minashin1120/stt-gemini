@@ -2971,7 +2971,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 let done = false;
                 const finish = () => { if (done) return; done = true; resolve(); };
                 ws.addEventListener('close', finish, { once: true });
-                window.setTimeout(finish, 6000);
+                // サーバー側の中継タイムアウト(8秒)より少し長めに待ち、
+                // 末尾の未確定発話に対するtranscript.doneが届く猶予を確保する
+                window.setTimeout(finish, 9000);
             });
         } else {
             try { ws.close(); } catch (_) {}

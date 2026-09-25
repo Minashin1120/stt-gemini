@@ -94,8 +94,11 @@ class GrokLiveSession internal constructor(
         ws.send(ByteString.of(*pcm16))
     }
 
-    /** {"type":"audio.done"} を送り、サーバーがcloseするまで最大timeoutMs待つ(bounded) */
-    fun finish(timeoutMs: Long = 3000) {
+    /** {"type":"audio.done"} を送り、サーバーがcloseするまで最大timeoutMs待つ(bounded)。
+     * 短すぎると、末尾の未確定発話がspeech_final前に停止された場合にxAIからの
+     * 最終transcript.doneが間に合わず、確定テキストが欠落する原因になるため、
+     * ある程度余裕を持たせている(Web版の中継タイムアウトと合わせて8秒)。 */
+    fun finish(timeoutMs: Long = 8000) {
         try {
             ws.send(JSONObject().put("type", "audio.done").toString())
         } catch (_: Exception) {
