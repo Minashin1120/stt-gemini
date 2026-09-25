@@ -43,6 +43,7 @@ Android版はWeb版と同じUI・機能・文言を持つように作られて�
   - 禁止: `./gradlew`・`gradle`・`assemble*`・`bundle*`・`lint`・`test` 等のGradleタスク、`sdkmanager`、エミュレーター、Kotlinコンパイラの実行。
 - ビルドはすべて GitHub Actions に委託します。`app/android/` を変更して push すると `.github/workflows/android.yml`（Android CI）が debug APK をビルドします。`v*` タグの push で `release.yml` が署名済み release APK と GitHub Release を作成します。
 - 結果の確認は GitHub の Actions 画面、または `curl https://api.github.com/repos/Minashin1120/stt-gemini/actions/runs` で行い、ビルド失敗時はログを見て修正し再度 push します。
+  - `~/.github_pat` にファイルが存在する場合は、それを使って認証付きで叩く（`curl -H "Authorization: Bearer $(cat ~/.github_pat)" ...`）。未認証だと60回/時のレート制限にすぐかかり、ジョブの生ログ（`/actions/jobs/{id}/logs`）も取得できないため。このファイルはこのサーバー上にのみ置かれた個人用PAT（fine-grained、対象リポジトリのみ・Actions/Contents Read-only）で、**値をコミットしたり出力・記載したりしない**こと。存在しない場合は未認証のまま（読み取り専用APIのみ）で構わない。
 - 各ビルド成功後、過去の APK artifact（`app-debug` / `app-release-signed`）は workflow が自動削除します（Releases は残す）。
 - 署名鍵のルール（詳細は `android-build.md`）:
   - 固定鍵 `app/android/ci/debug.keystore` を再生成・置換・削除しない。GitHub Secrets に署名鍵を保存しない。
