@@ -31,6 +31,7 @@ import com.minashin1120.voxcribe.audio.NativeRecorder
 import com.minashin1120.voxcribe.data.AudioStore
 import com.minashin1120.voxcribe.data.HistoryRow
 import com.minashin1120.voxcribe.data.SavedAudio
+import com.minashin1120.voxcribe.data.SecretStore
 import com.minashin1120.voxcribe.data.SecretStore.KeyType
 import com.minashin1120.voxcribe.data.WordRow
 import com.minashin1120.voxcribe.data.WordSetRow
@@ -303,6 +304,15 @@ class WorkspaceController(private val app: VoxcribeApp) {
     fun rec(append: Boolean) {
         if (!hasMicPermission()) {
             toast.show("マイクの使用が許可されていません", true)
+            return
+        }
+        // Grok Liveは録音開始直後からAPIキーが必要。未設定・不正形式なら録音前に
+        // 入力画面を出し、保存後に改めて録音開始する。
+        if (Models.isGrokLive(model) && !app.secrets.has(KeyType.XAI)) {
+            scope.launch {
+                val (proceed, _) = ensureApiKeyForModel(model, false, null, null)
+                if (proceed) rec(append)
+            }
             return
         }
         isAppendMode = append
@@ -1235,6 +1245,10 @@ class WorkspaceController(private val app: VoxcribeApp) {
         }
         if (key.length > 512) {
             apiKeyPrompt = p.copy(error = "APIキーが長すぎます")
+            return
+        }
+        if (p.keyType == KeyType.XAI && !SecretStore.isPlausibleXaiApiKey(key)) {
+            apiKeyPrompt = p.copy(error = "xAI APIキーの形式が正しくありません（xai- で始まるキーを入力してください）")
             return
         }
         apiKeyPrompt = p.copy(saving = true, error = null)

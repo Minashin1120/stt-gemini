@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.minashin1120.voxcribe.VoxcribeApp
 import com.minashin1120.voxcribe.ai.Models
+import com.minashin1120.voxcribe.data.SecretStore
 import com.minashin1120.voxcribe.data.SecretStore.KeyType
 import com.minashin1120.voxcribe.ui.ThemeState
 import com.minashin1120.voxcribe.ui.common.AlertBox
@@ -131,7 +132,14 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
                 BsButton("設定を保存", {
                     val msgs = mutableListOf<Pair<String, Boolean>>()
                     if (gemini.trim().isNotEmpty()) { app.secrets.put(KeyType.GEMINI, gemini.trim()); msgs += "Gemini APIキーを保存しました。" to false }
-                    if (xai.trim().isNotEmpty()) { app.secrets.put(KeyType.XAI, xai.trim()); msgs += "xAI APIキーを保存しました。" to false }
+                    if (xai.trim().isNotEmpty()) {
+                        if (SecretStore.isPlausibleXaiApiKey(xai)) {
+                            app.secrets.put(KeyType.XAI, xai.trim())
+                            msgs += "xAI APIキーを保存しました。" to false
+                        } else {
+                            msgs += "xAI APIキーの形式が正しくありません（xai- で始まるキーを入力してください）。" to true
+                        }
+                    }
                     if (openai.trim().isNotEmpty()) { app.secrets.put(KeyType.OPENAI, openai.trim()); msgs += "OpenAI APIキーを保存しました。" to false }
                     val r = retention.toIntOrNull()
                     when {

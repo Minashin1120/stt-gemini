@@ -59,11 +59,20 @@ object GrokClient {
             throw AiException("xAI STT APIへの接続に失敗しました。")
         }
         resp.use { r ->
+            val invalidKey = if (r.code == 400) {
+                try {
+                    JSONObject(r.body.string()).optString("error", "").contains("api key", ignoreCase = true)
+                } catch (_: Exception) {
+                    false
+                }
+            } else false
             when (r.code) {
                 200 -> Unit
-                401 -> throw AiException("xAI APIキーが無効です。設定画面で確認してください。")
+                401, 403 -> throw AiException("xAI APIキーが無効です。設定画面で確認してください。")
                 413 -> throw AiException("音声ファイルが最大サイズ(500MB)を超えています。")
                 429 -> throw AiException("xAI APIのレート制限に達しました。時間をおいて再度お試しください。")
+                400 -> if (invalidKey) throw AiException("xAI APIキーが無効です。設定画面で確認してください。")
+                    else throw AiException("xAI STT API Error 400")
                 else -> throw AiException("xAI STT API Error ${r.code}")
             }
             onStatus(TaskPhase.RECEIVING)
@@ -155,7 +164,10 @@ fun GrokClient.startLiveSession(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { closedLatch.countDown() }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                onError(t.message ?: "接続エラー")
+                val message = if (response?.code == 400 || response?.code == 401 || response?.code == 403)
+                    "xAI APIキーが無効です。設定画面で確認してください。"
+                else t.message ?: "接続エラー"
+                onError(message)
                 closedLatch.countDown()
             }
         })
