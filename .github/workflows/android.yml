@@ -171,7 +171,7 @@ jobs:
           git push origin "${{ steps.next_tag.outputs.tag }}"
 
       # GITHUB_TOKEN で push したタグは別ワークフローを起動しない仕様のため、
-      # release.yml を明示的に workflow_dispatch で起動する
+      # release.yml を明示的に workflow_dispatch で起動する（tag_name未着の場合は release.yml 側で ref から補完）
       - name: Trigger Release Build workflow
         uses: actions/github-script@v9
         with:

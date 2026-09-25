@@ -28,7 +28,8 @@ jobs:
       - name: Validate manual input
         if: github.event_name == 'workflow_dispatch'
         run: |
-          TAG="${{ inputs.tag_name }}"
+          # tag_name未指定でも、タグ ref を指定して手動実行された場合は ref から補完する
+          TAG="${{ inputs.tag_name || github.ref_name }}"
           if [ -z "$TAG" ]; then
             echo "tag_name is required for workflow_dispatch"
             exit 1
