@@ -25,6 +25,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # working-directory: app/android がステップ既定なので、そのディレクトリが存在する
+      # checkout より前には（cdが必要な）シェルステップを置かない
+      - name: Checkout code
+        uses: actions/checkout@v7
+
       # tag push / workflow_dispatch のどちらでも、シェル組み込みの $GITHUB_REF_NAME を
       # 唯一の情報源にしてタグを解決する（${{ }} 式の inputs 参照は経路によって欠落することがあるため使わない）
       - name: Resolve release tag
@@ -46,9 +51,6 @@ jobs:
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout code
-        uses: actions/checkout@v7
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
