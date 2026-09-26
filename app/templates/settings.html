@@ -39,11 +39,11 @@
                 <div class="form-text">Grok STTモデルを使用する場合に必要です。xAIコンソールから取得してください。</div>
             </div>
             <div class="mb-3">
-                <label>OpenAI API キー (GPT-Transcribe / GPT-Live)</label>
+                <label>OpenAI API キー (GPT-Transcribe / GPT-Live / Whisper)</label>
                 <div class="input-group">
                     <input type="password" name="openai_api_key" id="openaiApiKeyInput" class="form-control" placeholder="{% if has_openai_key %}変更する場合のみ入力{% else %}sk-...{% endif %}" autocomplete="new-password" maxlength="512">
                 </div>
-                <div class="form-text">GPT-Transcribe / GPT-Live Transcribeモデルを使用する場合に必要です。OpenAIコンソールから取得してください。</div>
+                <div class="form-text">GPT-Transcribe / GPT-Live Transcribe / Whisperモデルを使用する場合に必要です。OpenAIコンソールから取得してください。</div>
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold">履歴・データの保持時間 (分)</label>
@@ -61,6 +61,7 @@
                     <option value="grok-stt">Grok STT</option>
                     <option value="gpt-transcribe">GPT-Trans.</option>
                     <option value="gpt-live-transcribe">GPT-Live</option>
+                    <option value="whisper-1">Whisper</option>
                 </select>
                 <div class="form-text">単語追加時に「変換後」の単語から「読み」を自動生成する際に使用するモデルです（Geminiモデル推奨）。</div>
             </div>

@@ -1,6 +1,6 @@
 # Gemini AI Speech-to-Text (STT)
 
-Google Gemini（3.5 Flash / 3.0 Flash Preview / 3.1 Flash-Lite）の思考プロセス（Thinking）と、xAI Grok STT を組み合わせた高精度な音声文字起こし Web アプリです。
+Google Gemini、xAI Grok STT、OpenAI GPT Transcribe / Whisper に対応した音声文字起こし Web アプリです。
 
 本番ドメイン例: `https://stt-gemini.minashin1120.com`（Apache リバースプロキシ + Gunicorn）
 
@@ -48,9 +48,12 @@ Google Gemini（3.5 Flash / 3.0 Flash Preview / 3.1 Flash-Lite）の思考プロ
 | `gemini-3-flash-preview` | 3.0 Flash | ✅ | ✅ | ✅ | ✅ |
 | `gemini-3.1-flash-lite` | 3.1 Flash-Lite | ✅ | ✅ | ✅ | ✅（間隔修正ボタンあり） |
 | `grok-stt` | Grok STT (xAI) | ❌ | ❌ | ✅（サーバー側置換） | ❌（Gemini にフォールバック） |
+| `gpt-transcribe` | GPT-Transcribe (OpenAI) | ❌ | ❌ | ✅（サーバー側置換） | ❌（Gemini にフォールバック） |
+| `whisper-1` | Whisper (OpenAI) | ❌ | ❌ | ✅（サーバー側置換） | ❌（Gemini にフォールバック） |
 
 - Gemini: REST `v1beta/models/{model}:streamGenerateContent`（SDK 非依存）
 - Grok STT: `POST https://api.x.ai/v1/stt`（multipart）
+- OpenAI GPT Transcribe / Whisper: `POST https://api.openai.com/v1/audio/transcriptions`（multipart）
 
 使用しているシステムプロンプト全文は [docs/PROMPTS.md](docs/PROMPTS.md) を参照してください。
 

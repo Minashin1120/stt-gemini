@@ -175,7 +175,7 @@ fun GrokClient.startLiveSession(
     return GrokLiveSession(ws, token, closedLatch)
 }
 
-/** app.py OpenAI gpt-transcribe / gpt-live-transcribe の移植 */
+/** app.py OpenAI transcription / gpt-live-transcribe の移植 */
 object OpenAiClient {
 
     private fun mapIoError(e: IOException, token: CancelToken): Exception {
@@ -192,6 +192,7 @@ object OpenAiClient {
         onStatus: (String) -> Unit,
         onText: (String) -> Unit,
         onUploadProgress: ((Long, Long) -> Unit)? = null,
+        model: String = "gpt-transcribe",
     ): String {
         if (token.isCancelled) throw CancelledException()
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
@@ -199,8 +200,8 @@ object OpenAiClient {
                 "file", file.name,
                 ProgressFileBody(file, "application/octet-stream".toMediaType()) { s, t -> onUploadProgress?.invoke(s, t) }
             )
-            .addFormDataPart("model", "gpt-transcribe")
-            .addFormDataPart("stream", "true")
+            .addFormDataPart("model", model)
+            .apply { if (model != "whisper-1") addFormDataPart("stream", "true") }
             .build()
         onStatus(TaskPhase.SENDING)
         val call = Http.client.newCall(
@@ -220,6 +221,16 @@ object OpenAiClient {
                 else -> throw AiException("OpenAI Transcription API Error ${r.code}")
             }
             onStatus(TaskPhase.RECEIVING)
+            if (model == "whisper-1") {
+                onStatus(TaskPhase.TRANSCRIBING)
+                val text = try {
+                    JSONObject(r.body.string()).optString("text", "")
+                } catch (_: Exception) {
+                    throw AiException("OpenAI Transcription APIの応答を読み取れませんでした。")
+                }
+                if (text.isNotEmpty()) onText(text)
+                return text
+            }
             val full = StringBuilder()
             var switched = false
             try {

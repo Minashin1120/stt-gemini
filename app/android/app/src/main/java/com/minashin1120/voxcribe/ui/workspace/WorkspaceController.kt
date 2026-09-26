@@ -1266,7 +1266,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
         val p = apiKeyPrompt ?: return
         val models = mutableListOf<Pair<String, String>>()
         if (app.secrets.has(KeyType.GEMINI)) models += Models.GEMINI.map { it.value to it.label }
-        if (app.secrets.has(KeyType.OPENAI)) models += listOf("gpt-transcribe" to "GPT-Transcribe", "gpt-live-transcribe" to "GPT-Live Transcribe")
+        if (app.secrets.has(KeyType.OPENAI)) models += listOf("gpt-transcribe" to "GPT-Transcribe", "gpt-live-transcribe" to "GPT-Live Transcribe", "whisper-1" to "Whisper")
         if (app.secrets.has(KeyType.XAI)) models += listOf("grok-stt" to "Grok STT", "grok-live-transcribe" to "Grok Live")
         apiKeyPrompt = p.copy(view = AkView.SWITCH, switchModels = models)
     }

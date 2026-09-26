@@ -126,9 +126,9 @@ class AiRunner(
                 emit(AiEvent.Done)
                 saveHistory(action, summary, "", text)
             }
-            model == "gpt-transcribe" || model == "gpt-live-transcribe" -> {
-                val raw = if (model == "gpt-transcribe")
-                    OpenAiClient.transcribe(apiKey, file, token, status, { emit(AiEvent.Text(it)) }, progress)
+            model == "gpt-transcribe" || model == "gpt-live-transcribe" || model == "whisper-1" -> {
+                val raw = if (model != "gpt-live-transcribe")
+                    OpenAiClient.transcribe(apiKey, file, token, status, { emit(AiEvent.Text(it)) }, progress, model)
                 else
                     OpenAiClient.liveTranscribe(apiKey, file, token, status) { emit(AiEvent.Text(it)) }
                 val text = applyWordReplacements(raw)
