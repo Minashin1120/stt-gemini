@@ -110,6 +110,7 @@ ALLOWED_MODELS = {
     'grok-live-transcribe',
     'gpt-transcribe',
     'gpt-live-transcribe',
+    'whisper-1',
 }
 
 # --- Grok Live (WebSocket streaming) settings ---
@@ -928,7 +929,7 @@ def check_api_keys():
 def check_api_key():
     data = request.get_json(silent=True) or {}
     model = data.get('model', '')
-    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
         has_key = current_user.encrypted_openai_api_key is not None
     elif model in ('grok-stt', 'grok-live-transcribe'):
         has_key = is_plausible_xai_api_key(current_user.get_xai_api_key())
@@ -1436,18 +1437,20 @@ def transcribe():
     if not filename:
         return jsonify({'error': '対応していない音声形式です'}), 400
 
-    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
         api_key = current_user.get_openai_api_key()
         if not api_key: return jsonify({'error': 'OpenAI API Key not set. Go to Settings to configure it.'}), 400
         
         task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
-        if model == 'gpt-transcribe':
+        if model in ('gpt-transcribe', 'whisper-1'):
             target = process_openai_gpt_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
+            kwargs = {'model': model, 'stream': model != 'whisper-1'}
         else:
             target = process_openai_gpt_live_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
-        thread = threading.Thread(target=target, args=args)
+            kwargs = {}
+        thread = threading.Thread(target=target, args=args, kwargs=kwargs)
         thread.daemon = True
         thread.start()
         return create_stream_response(stream_task_updates(task_id), task_id)
@@ -1718,18 +1721,20 @@ def reanalyze():
     filepath = resolve_user_upload_path(filename, current_user.id)
     if not filepath or not os.path.exists(filepath): return jsonify({'error': '期限切れ'}), 400
 
-    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
         api_key = current_user.get_openai_api_key()
         if not api_key: return jsonify({'error': 'OpenAI API Key not set'}), 400
         
         task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
-        if model == 'gpt-transcribe':
+        if model in ('gpt-transcribe', 'whisper-1'):
             target = process_openai_gpt_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "reanalyze", "Re-analysis Request")
+            kwargs = {'model': model, 'stream': model != 'whisper-1'}
         else:
             target = process_openai_gpt_live_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "reanalyze", "Re-analysis Request")
-        thread = threading.Thread(target=target, args=args)
+            kwargs = {}
+        thread = threading.Thread(target=target, args=args, kwargs=kwargs)
         thread.daemon = True
         thread.start()
         return create_stream_response(stream_task_updates(task_id), task_id)
@@ -1848,7 +1853,7 @@ def improve():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
-    if model in ('grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
         model = 'gemini-3.5-flash'  # Grok/OpenAI STT cannot do text improvement
     task_id = create_task(current_user.id, "improve", instruction, model)
     thread = threading.Thread(
@@ -1882,7 +1887,7 @@ def correct_rephrase():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
-    if model in ('grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
         model = 'gemini-3.5-flash'  # Grok/OpenAI STT cannot do text correction
     summary = "Rephrase correction (text only)"
     task_id = create_task(current_user.id, "correct_rephrase", summary, model)
@@ -2126,7 +2131,7 @@ def upload_complete():
             return jsonify({'error': 'アップロードは結合処理中です'}), 409
 
     ext, mime_type = get_audio_metadata(original_filename)
-    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
         max_audio_bytes = MAX_OPENAI_AUDIO_BYTES
     elif model in ('grok-stt', 'grok-live-transcribe'):
         max_audio_bytes = MAX_XAI_AUDIO_BYTES
@@ -2184,19 +2189,21 @@ def upload_complete():
     session['last_audio_file'] = filename
     session['last_audio_mime'] = mime_type
 
-    if model in ('gpt-transcribe', 'gpt-live-transcribe'):
+    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
         api_key = current_user.get_openai_api_key()
         if not api_key:
             return jsonify({'error': 'OpenAI API Key not set. Go to Settings to configure it.'}), 400
 
         task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
-        if model == 'gpt-transcribe':
+        if model in ('gpt-transcribe', 'whisper-1'):
             target = process_openai_gpt_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
+            kwargs = {'model': model, 'stream': model != 'whisper-1'}
         else:
             target = process_openai_gpt_live_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
-        thread = threading.Thread(target=target, args=args)
+            kwargs = {}
+        thread = threading.Thread(target=target, args=args, kwargs=kwargs)
         thread.daemon = True
         thread.start()
         return create_stream_response(stream_task_updates(task_id), task_id)
@@ -2352,7 +2359,7 @@ def get_history():
     return jsonify(data)
 
 # --- OpenAI Background Processors ---
-def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary, prompt="", keywords=None, languages=None, stream=True):
+def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary, prompt="", keywords=None, languages=None, stream=True, model='gpt-transcribe'):
     try:
         if task_is_cancelled(task_id):
             return
@@ -2363,7 +2370,7 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
             filename = os.path.basename(audio_filepath)
 
             files = {'file': (filename, f, 'application/octet-stream')}
-            data = {'model': 'gpt-transcribe'}
+            data = {'model': model}
             if stream:
                 data['stream'] = 'true'
             if prompt:
@@ -2379,7 +2386,7 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
             # so we format the data tuple-style
             files_list = []
             data_list = []
-            data_list.append(('model', 'gpt-transcribe'))
+            data_list.append(('model', model))
             if stream:
                 data_list.append(('stream', 'true'))
             if prompt:

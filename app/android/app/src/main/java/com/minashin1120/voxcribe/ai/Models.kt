@@ -19,6 +19,7 @@ object Models {
         ModelOption("grok-live-transcribe", "Grok Live"),
         ModelOption("gpt-transcribe", "GPT-Trans."),
         ModelOption("gpt-live-transcribe", "GPT-Live"),
+        ModelOption("whisper-1", "Whisper"),
     )
 
     val GEMINI = ALL.filter { it.value.startsWith("gemini") }
@@ -40,7 +41,7 @@ object Models {
 
     fun isGrokLive(model: String) = model == "grok-live-transcribe"
 
-    fun isOpenAi(model: String) = model == "gpt-transcribe" || model == "gpt-live-transcribe"
+    fun isOpenAi(model: String) = model == "gpt-transcribe" || model == "gpt-live-transcribe" || model == "whisper-1"
 
     fun isStt(model: String) = isGrok(model) || isOpenAi(model)
 

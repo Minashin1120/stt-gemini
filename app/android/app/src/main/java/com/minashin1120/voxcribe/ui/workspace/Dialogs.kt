@@ -404,7 +404,7 @@ private fun ApiKeyOverlay(ctrl: WorkspaceController, p: ApiKeyPrompt) {
                 AkView.INPUT -> {
                     val (title, msg, ph) = when (p.keyType) {
                         KeyType.XAI -> Triple("xAI (Grok) APIキーの設定", "Grok STT モデルを使用するには xAI API キーが必要です。", "xai-...")
-                        KeyType.OPENAI -> Triple("OpenAI APIキーの設定", "GPT-Transcribe / GPT-Live モデルを使用するには OpenAI API キーが必要です。", "sk-...")
+                        KeyType.OPENAI -> Triple("OpenAI APIキーの設定", "GPT-Transcribe / GPT-Live / Whisperモデルを使用するには OpenAI API キーが必要です。", "sk-...")
                         KeyType.GEMINI -> Triple("Gemini APIキーの設定", "Gemini モデルを使用するには Gemini API キーが必要です。", "AIzaSy...")
                     }
                     AkHeader(title, fg) { ctrl.akClose() }

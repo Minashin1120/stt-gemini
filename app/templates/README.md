@@ -33,7 +33,7 @@ Jinja2 + Bootstrap 5.3 + Vanilla JavaScript です。ビルドツールは使い
 
 ### モデル・モード
 
-- モデル選択: 3.5 Flash / 3.0 Flash / 3.1 Flash-Lite / Grok STT（`localStorage` キー `stt_m`）
+- モデル選択: Gemini / Grok STT / GPT Transcribe / Whisper（`localStorage` キー `stt_m`）
 - 推論レベル: LOW / MEDIUM / HIGH（Grok 選択時は無効化）
 - 言い直し修正・フィラー除去トグル（両タブ共通表示、キー `stt_fl` 等）
 
