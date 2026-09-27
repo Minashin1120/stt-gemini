@@ -219,11 +219,17 @@
                                 <button class="custom-select-option" data-value="gemini-3.5-flash-lite" type="button">3.5 Flash-Lite</button>
                                 <button class="custom-select-option" data-value="gemini-3-flash-preview" type="button">3.0 Flash</button>
                                 <button class="custom-select-option" data-value="gemini-3.1-flash-lite" type="button">3.1 Flash-Lite</button>
+                                <button class="custom-select-option" data-value="gemini-3.5-transcribe" type="button">Gemini Transcribe</button>
+                                <button class="custom-select-option" data-value="gemini-3.5-transcribe-live" type="button">Gemini Live Transcribe</button>
                                 <button class="custom-select-option" data-value="grok-stt" type="button">Grok STT</button>
                                 <button class="custom-select-option" data-value="grok-live-transcribe" type="button">Grok Live</button>
                                 <button class="custom-select-option" data-value="gpt-transcribe" type="button">GPT-Trans.</button>
                                 <button class="custom-select-option" data-value="gpt-live-transcribe" type="button">GPT-Live</button>
                                 <button class="custom-select-option" data-value="whisper-1" type="button">Whisper</button>
+                                <button class="custom-select-option" data-value="gpt-4o-transcribe" type="button">GPT-4o Transcribe</button>
+                                <button class="custom-select-option" data-value="gpt-4o-mini-transcribe" type="button">GPT-4o Mini Transcribe</button>
+                                <button class="custom-select-option" data-value="gpt-4o-transcribe-diarize" type="button">GPT-4o Speaker Transcribe</button>
+                                <button class="custom-select-option" data-value="gpt-realtime-whisper" type="button">GPT-Realtime-Whisper</button>
                             </div>
                         </div>
                     </div>
@@ -634,7 +640,7 @@ let _akIsRecording = false;
 let _akOriginalModel = null;
 
 function getApiKeyType(model) {
-    if (model === 'gpt-transcribe' || model === 'gpt-live-transcribe' || model === 'whisper-1') return 'openai';
+    if (model.startsWith('gpt-') || model === 'whisper-1') return 'openai';
     return (model === 'grok-stt' || model === 'grok-live-transcribe') ? 'xai' : 'gemini';
 }
 
@@ -784,14 +790,20 @@ async function showSwitchView(currentModel) {
                 { label: '3.5 Flash', value: 'gemini-3.5-flash' },
                 { label: '3.5 Flash-Lite', value: 'gemini-3.5-flash-lite' },
                 { label: '3.0 Flash', value: 'gemini-3-flash-preview' },
-                { label: '3.1 Flash-Lite', value: 'gemini-3.1-flash-lite' }
+                { label: '3.1 Flash-Lite', value: 'gemini-3.1-flash-lite' },
+                { label: 'Gemini Transcribe', value: 'gemini-3.5-transcribe' },
+                { label: 'Gemini Live Transcribe', value: 'gemini-3.5-transcribe-live' }
             );
         }
         if (data.has_openai_key) {
             models.push(
                 { label: 'GPT-Transcribe', value: 'gpt-transcribe' },
                 { label: 'GPT-Live Transcribe', value: 'gpt-live-transcribe' },
-                { label: 'Whisper', value: 'whisper-1' }
+                { label: 'Whisper', value: 'whisper-1' },
+                { label: 'GPT-4o Transcribe', value: 'gpt-4o-transcribe' },
+                { label: 'GPT-4o Mini Transcribe', value: 'gpt-4o-mini-transcribe' },
+                { label: 'GPT-4o Speaker Transcribe', value: 'gpt-4o-transcribe-diarize' },
+                { label: 'GPT-Realtime-Whisper', value: 'gpt-realtime-whisper' }
             );
         }
         if (data.has_xai_key) {
@@ -2163,7 +2175,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const savedThink = localStorage.getItem('stt_t_' + currentModel);
         if (savedThink) el.think.value = savedThink;
         updatePostprocessBar();
-        const noThinkModels = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'];
+        const noThinkModels = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe-diarize', 'gpt-realtime-whisper', 'gemini-3.5-transcribe', 'gemini-3.5-transcribe-live'];
         if (noThinkModels.includes(value)) {
             if (thinkingOpen) thoughtCol.hide();
             el.think.disabled = true;
@@ -2215,7 +2227,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (textEl && activeOpt) textEl.textContent = activeOpt.textContent;
     const savedThink = localStorage.getItem('stt_t_' + currentModel);
     if (savedThink) el.think.value = savedThink;
-    const noThinkModels = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'];
+    const noThinkModels = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe-diarize', 'gpt-realtime-whisper', 'gemini-3.5-transcribe', 'gemini-3.5-transcribe-live'];
     if (noThinkModels.includes(currentModel)) {
         el.think.disabled = true;
         el.think.title = (currentModel === 'grok-stt' || currentModel === 'grok-live-transcribe') ? 'Grok STTでは推論レベルは使用されません' : 'OpenAIモデルでは推論レベルは使用されません';
@@ -2546,7 +2558,7 @@ document.addEventListener('DOMContentLoaded', () => {
             el.res.value = initText;
         }
 
-        const noThinkModels2 = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'];
+        const noThinkModels2 = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe-diarize', 'gpt-realtime-whisper', 'gemini-3.5-transcribe', 'gemini-3.5-transcribe-live'];
         if (el.think.value !== 'MINIMAL' && !noThinkModels2.includes(getModel())) thoughtCol.show();
         el.abort.classList.remove('d-none');
     }
@@ -2623,7 +2635,7 @@ document.addEventListener('DOMContentLoaded', () => {
             el.tho.innerText = '[Grok STT は思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
         } else if (_mdl === 'grok-live-transcribe') {
             el.tho.innerText = '[Grok Live はリアルタイムのWebSocketで受信済みです(バッチアップロードにフォールバックしました)。]';
-        } else if (_mdl === 'gpt-transcribe' || _mdl === 'gpt-live-transcribe' || _mdl === 'whisper-1') {
+        } else if (_mdl.startsWith('gpt-') || _mdl === 'whisper-1') {
             el.tho.innerText = '[OpenAIモデルは思考プロセスを提供しません。APIが直接文字起こし結果を返します。]';
         } else if (_mdl === 'gemini-3.1-flash-lite' && (_lvl === 'LOW' || _lvl === 'MEDIUM') && !el.tho.innerText.trim()) {
             el.tho.innerText = '[Flash-Lite は LOW/MEDIUM 設定時に思考プロセスを返しません。表示するには HIGH を選択してください。]';

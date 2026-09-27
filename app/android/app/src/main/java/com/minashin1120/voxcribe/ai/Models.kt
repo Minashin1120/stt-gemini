@@ -15,11 +15,17 @@ object Models {
         ModelOption("gemini-3.5-flash-lite", "3.5 Flash-Lite"),
         ModelOption("gemini-3-flash-preview", "3.0 Flash"),
         ModelOption("gemini-3.1-flash-lite", "3.1 Flash-Lite"),
+        ModelOption("gemini-3.5-transcribe", "Gemini Transcribe"),
+        ModelOption("gemini-3.5-transcribe-live", "Gemini Live Transcribe"),
         ModelOption("grok-stt", "Grok STT"),
         ModelOption("grok-live-transcribe", "Grok Live"),
         ModelOption("gpt-transcribe", "GPT-Trans."),
         ModelOption("gpt-live-transcribe", "GPT-Live"),
         ModelOption("whisper-1", "Whisper"),
+        ModelOption("gpt-4o-transcribe", "GPT-4o Transcribe"),
+        ModelOption("gpt-4o-mini-transcribe", "GPT-4o Mini Transcribe"),
+        ModelOption("gpt-4o-transcribe-diarize", "GPT-4o Speaker Transcribe"),
+        ModelOption("gpt-realtime-whisper", "GPT-Realtime-Whisper"),
     )
 
     val GEMINI = ALL.filter { it.value.startsWith("gemini") }
@@ -41,9 +47,11 @@ object Models {
 
     fun isGrokLive(model: String) = model == "grok-live-transcribe"
 
-    fun isOpenAi(model: String) = model == "gpt-transcribe" || model == "gpt-live-transcribe" || model == "whisper-1"
+    fun isOpenAi(model: String) = model in setOf("gpt-transcribe", "gpt-live-transcribe", "whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-4o-transcribe-diarize", "gpt-realtime-whisper")
 
-    fun isStt(model: String) = isGrok(model) || isOpenAi(model)
+    fun isGeminiStt(model: String) = model == "gemini-3.5-transcribe" || model == "gemini-3.5-transcribe-live"
+
+    fun isStt(model: String) = isGrok(model) || isOpenAi(model) || isGeminiStt(model)
 
     fun keyType(model: String): KeyType = when {
         isOpenAi(model) -> KeyType.OPENAI

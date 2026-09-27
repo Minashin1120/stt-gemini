@@ -126,11 +126,21 @@ class AiRunner(
                 emit(AiEvent.Done)
                 saveHistory(action, summary, "", text)
             }
-            model == "gpt-transcribe" || model == "gpt-live-transcribe" || model == "whisper-1" -> {
-                val raw = if (model != "gpt-live-transcribe")
+            Models.isGeminiStt(model) -> {
+                val raw = if (model == "gemini-3.5-transcribe-live")
+                    GeminiClient.transcribeLive(apiKey, file, token, status) { emit(AiEvent.Text(it)) }
+                else GeminiClient.transcribeDedicated(apiKey, file, mime, token, status, progress)
+                val text = applyWordReplacements(raw)
+                if (token.isCancelled) throw CancelledException()
+                emit(AiEvent.ReplaceText(text)); emit(AiEvent.Done)
+                saveHistory(action, summary, "", text)
+            }
+            Models.isOpenAi(model) -> {
+                val live = model == "gpt-live-transcribe" || model == "gpt-realtime-whisper"
+                val raw = if (!live)
                     OpenAiClient.transcribe(apiKey, file, token, status, { emit(AiEvent.Text(it)) }, progress, model)
                 else
-                    OpenAiClient.liveTranscribe(apiKey, file, token, status) { emit(AiEvent.Text(it)) }
+                    OpenAiClient.liveTranscribe(apiKey, file, token, status, { emit(AiEvent.Text(it)) }, model)
                 val text = applyWordReplacements(raw)
                 if (token.isCancelled) throw CancelledException()
                 emit(AiEvent.ReplaceText(text))

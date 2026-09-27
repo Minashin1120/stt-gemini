@@ -106,12 +106,26 @@ ALLOWED_MODELS = {
     'gemini-3.5-flash-lite',
     'gemini-3-flash-preview',
     'gemini-3.1-flash-lite',
+    'gemini-3.5-transcribe',
+    'gemini-3.5-transcribe-live',
     'grok-stt',
     'grok-live-transcribe',
     'gpt-transcribe',
     'gpt-live-transcribe',
     'whisper-1',
+    'gpt-4o-transcribe',
+    'gpt-4o-mini-transcribe',
+    'gpt-4o-transcribe-diarize',
+    'gpt-realtime-whisper',
 }
+
+OPENAI_FILE_STT_MODELS = {
+    'gpt-transcribe', 'whisper-1', 'gpt-4o-transcribe',
+    'gpt-4o-mini-transcribe', 'gpt-4o-transcribe-diarize',
+}
+OPENAI_LIVE_STT_MODELS = {'gpt-live-transcribe', 'gpt-realtime-whisper'}
+OPENAI_STT_MODELS = OPENAI_FILE_STT_MODELS | OPENAI_LIVE_STT_MODELS
+GEMINI_STT_MODELS = {'gemini-3.5-transcribe', 'gemini-3.5-transcribe-live'}
 
 # --- Grok Live (WebSocket streaming) settings ---
 GROK_LIVE_ALLOWED_ORIGINS = {f"https://{os.getenv('GROK_LIVE_HOST', 'stt-gemini.minashin1120.com')}"}
@@ -929,7 +943,7 @@ def check_api_keys():
 def check_api_key():
     data = request.get_json(silent=True) or {}
     model = data.get('model', '')
-    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
+    if model in OPENAI_STT_MODELS:
         has_key = current_user.encrypted_openai_api_key is not None
     elif model in ('grok-stt', 'grok-live-transcribe'):
         has_key = is_plausible_xai_api_key(current_user.get_xai_api_key())
@@ -1437,19 +1451,27 @@ def transcribe():
     if not filename:
         return jsonify({'error': '対応していない音声形式です'}), 400
 
-    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
+    if model in GEMINI_STT_MODELS:
+        api_key = current_user.get_api_key()
+        if not api_key: return jsonify({'error': 'API Key not set'}), 400
+        task_id = create_task(current_user.id, 'transcribe', 'Audio Input', model)
+        target = process_gemini_live_transcribe_background if model.endswith('-live') else process_gemini_transcribe_background
+        threading.Thread(target=target, args=(task_id, api_key, filepath, current_user.id, 'transcribe', 'Audio Input'), daemon=True).start()
+        return create_stream_response(stream_task_updates(task_id), task_id)
+
+    if model in OPENAI_STT_MODELS:
         api_key = current_user.get_openai_api_key()
         if not api_key: return jsonify({'error': 'OpenAI API Key not set. Go to Settings to configure it.'}), 400
         
         task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
-        if model in ('gpt-transcribe', 'whisper-1'):
+        if model in OPENAI_FILE_STT_MODELS:
             target = process_openai_gpt_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
-            kwargs = {'model': model, 'stream': model != 'whisper-1'}
+            kwargs = {'model': model, 'stream': model != 'whisper-1', 'diarize': model == 'gpt-4o-transcribe-diarize'}
         else:
             target = process_openai_gpt_live_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
-            kwargs = {}
+            kwargs = {'model': model}
         thread = threading.Thread(target=target, args=args, kwargs=kwargs)
         thread.daemon = True
         thread.start()
@@ -1721,19 +1743,27 @@ def reanalyze():
     filepath = resolve_user_upload_path(filename, current_user.id)
     if not filepath or not os.path.exists(filepath): return jsonify({'error': '期限切れ'}), 400
 
-    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
+    if model in GEMINI_STT_MODELS:
+        api_key = current_user.get_api_key()
+        if not api_key: return jsonify({'error': 'API Key not set'}), 400
+        task_id = create_task(current_user.id, 'reanalyze', 'Re-analysis Request', model)
+        target = process_gemini_live_transcribe_background if model.endswith('-live') else process_gemini_transcribe_background
+        threading.Thread(target=target, args=(task_id, api_key, filepath, current_user.id, 'reanalyze', 'Re-analysis Request'), daemon=True).start()
+        return create_stream_response(stream_task_updates(task_id), task_id)
+
+    if model in OPENAI_STT_MODELS:
         api_key = current_user.get_openai_api_key()
         if not api_key: return jsonify({'error': 'OpenAI API Key not set'}), 400
         
         task_id = create_task(current_user.id, "reanalyze", "Re-analysis Request", model)
-        if model in ('gpt-transcribe', 'whisper-1'):
+        if model in OPENAI_FILE_STT_MODELS:
             target = process_openai_gpt_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "reanalyze", "Re-analysis Request")
-            kwargs = {'model': model, 'stream': model != 'whisper-1'}
+            kwargs = {'model': model, 'stream': model != 'whisper-1', 'diarize': model == 'gpt-4o-transcribe-diarize'}
         else:
             target = process_openai_gpt_live_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "reanalyze", "Re-analysis Request")
-            kwargs = {}
+            kwargs = {'model': model}
         thread = threading.Thread(target=target, args=args, kwargs=kwargs)
         thread.daemon = True
         thread.start()
@@ -1853,7 +1883,7 @@ def improve():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
-    if model in ('grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
+    if model in {'grok-stt', 'grok-live-transcribe'} | OPENAI_STT_MODELS | GEMINI_STT_MODELS:
         model = 'gemini-3.5-flash'  # Grok/OpenAI STT cannot do text improvement
     task_id = create_task(current_user.id, "improve", instruction, model)
     thread = threading.Thread(
@@ -1887,7 +1917,7 @@ def correct_rephrase():
         "generationConfig": {"thinkingConfig": {"includeThoughts": True, "thinkingLevel": get_thinking_level(data.get('thinking_level'))}}
     }
     model = validate_model(data.get('model', 'gemini-3.5-flash'))
-    if model in ('grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
+    if model in {'grok-stt', 'grok-live-transcribe'} | OPENAI_STT_MODELS | GEMINI_STT_MODELS:
         model = 'gemini-3.5-flash'  # Grok/OpenAI STT cannot do text correction
     summary = "Rephrase correction (text only)"
     task_id = create_task(current_user.id, "correct_rephrase", summary, model)
@@ -2131,7 +2161,7 @@ def upload_complete():
             return jsonify({'error': 'アップロードは結合処理中です'}), 409
 
     ext, mime_type = get_audio_metadata(original_filename)
-    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
+    if model in OPENAI_STT_MODELS:
         max_audio_bytes = MAX_OPENAI_AUDIO_BYTES
     elif model in ('grok-stt', 'grok-live-transcribe'):
         max_audio_bytes = MAX_XAI_AUDIO_BYTES
@@ -2189,20 +2219,28 @@ def upload_complete():
     session['last_audio_file'] = filename
     session['last_audio_mime'] = mime_type
 
-    if model in ('gpt-transcribe', 'gpt-live-transcribe', 'whisper-1'):
+    if model in GEMINI_STT_MODELS:
+        api_key = current_user.get_api_key()
+        if not api_key: return jsonify({'error': 'API Key not set'}), 400
+        task_id = create_task(current_user.id, 'transcribe', 'Audio Input', model)
+        target = process_gemini_live_transcribe_background if model.endswith('-live') else process_gemini_transcribe_background
+        threading.Thread(target=target, args=(task_id, api_key, filepath, current_user.id, 'transcribe', 'Audio Input'), daemon=True).start()
+        return create_stream_response(stream_task_updates(task_id), task_id)
+
+    if model in OPENAI_STT_MODELS:
         api_key = current_user.get_openai_api_key()
         if not api_key:
             return jsonify({'error': 'OpenAI API Key not set. Go to Settings to configure it.'}), 400
 
         task_id = create_task(current_user.id, "transcribe", "Audio Input", model)
-        if model in ('gpt-transcribe', 'whisper-1'):
+        if model in OPENAI_FILE_STT_MODELS:
             target = process_openai_gpt_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
-            kwargs = {'model': model, 'stream': model != 'whisper-1'}
+            kwargs = {'model': model, 'stream': model != 'whisper-1', 'diarize': model == 'gpt-4o-transcribe-diarize'}
         else:
             target = process_openai_gpt_live_transcribe_background
             args = (task_id, api_key, filepath, current_user.id, "transcribe", "Audio Input")
-            kwargs = {}
+            kwargs = {'model': model}
         thread = threading.Thread(target=target, args=args, kwargs=kwargs)
         thread.daemon = True
         thread.start()
@@ -2358,8 +2396,107 @@ def get_history():
         })
     return jsonify(data)
 
+# --- Gemini Transcription Processors ---
+def process_gemini_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary):
+    """Gemini Transcribe dedicated model uses Files + Interactions APIs."""
+    try:
+        if task_is_cancelled(task_id): return
+        mime = get_audio_metadata(os.path.basename(audio_filepath))[1] or 'audio/mpeg'
+        size = os.path.getsize(audio_filepath)
+        update_task(task_id, phase='sending_to_api')
+        start = requests.post('https://generativelanguage.googleapis.com/upload/v1beta/files',
+            headers={'x-goog-api-key': api_key, 'X-Goog-Upload-Protocol': 'resumable',
+                'X-Goog-Upload-Command': 'start', 'X-Goog-Upload-Header-Content-Length': str(size),
+                'X-Goog-Upload-Header-Content-Type': mime, 'Content-Type': 'application/json'},
+            json={'file': {'display_name': os.path.basename(audio_filepath)}}, timeout=(10, 60))
+        if start.status_code not in (200, 201):
+            update_task(task_id, status='error', error=f'Gemini Files API Error {start.status_code}'); return
+        upload_url = start.headers.get('X-Goog-Upload-URL')
+        if not upload_url:
+            update_task(task_id, status='error', error='Gemini Files APIのアップロードURLを取得できませんでした'); return
+        with open(audio_filepath, 'rb') as audio:
+            uploaded = requests.post(upload_url, headers={'x-goog-api-key': api_key,
+                'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize',
+                'Content-Length': str(size)}, data=audio, timeout=(10, 600))
+        if uploaded.status_code not in (200, 201):
+            update_task(task_id, status='error', error=f'Gemini音声アップロードエラー {uploaded.status_code}'); return
+        file_uri = uploaded.json().get('file', {}).get('uri')
+        if not file_uri:
+            update_task(task_id, status='error', error='Gemini Files APIの応答に音声URIがありません'); return
+        if task_is_cancelled(task_id): return
+        update_task(task_id, phase='transcribing')
+        response = requests.post('https://generativelanguage.googleapis.com/v1beta/interactions',
+            headers={'x-goog-api-key': api_key, 'Content-Type': 'application/json'},
+            json={'model': 'gemini-3.5-transcribe', 'input': [{'type': 'audio', 'uri': file_uri, 'mime_type': mime}]},
+            timeout=(10, 600))
+        if response.status_code != 200:
+            update_task(task_id, status='error', error=f'Gemini Transcribe API Error {response.status_code}'); return
+        obj = response.json()
+        text = obj.get('output_text', '') or ''.join(part.get('text', '') for item in obj.get('outputs', [])
+            for part in item.get('content', []) if part.get('type') == 'text')
+        text = apply_word_replacements(user_id, text)
+        update_task(task_id, status='done', thought='', result=text)
+        save_history(user_id, action_type, input_summary, '', text)
+    except Exception as e:
+        logger.error(f"Gemini Transcribe task {task_id} failed: {e}", exc_info=True)
+        update_task(task_id, status='error', error='Gemini Transcribe処理中にエラーが発生しました')
+
+
+def process_gemini_live_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary):
+    """Stream an existing recording through the dedicated Gemini Live transcription model."""
+    try:
+        import subprocess
+        import websocket as ws_client
+        if task_is_cancelled(task_id): return
+        pcm_path = audio_filepath + '.gemini.pcm'
+        subprocess.run(['ffmpeg', '-y', '-i', audio_filepath, '-ar', '16000', '-ac', '1', '-f', 's16le', pcm_path],
+            capture_output=True, timeout=120, check=True)
+        with open(pcm_path, 'rb') as f: pcm = f.read()
+        try: os.remove(pcm_path)
+        except OSError: pass
+        text_parts, errors = [], []
+        ready, done = threading.Event(), threading.Event()
+        def on_open(ws):
+            ws.send(json.dumps({'setup': {'model': 'models/gemini-3.5-transcribe-live',
+                'generationConfig': {'responseModalities': ['TEXT'], 'inputAudioTranscription': {}}}}))
+        def on_message(ws, message):
+            try:
+                event = json.loads(message)
+                if event.get('setupComplete') is not None:
+                    ready.set(); update_task(task_id, phase='receiving')
+                    for off in range(0, len(pcm), 32000):
+                        if task_is_cancelled(task_id): break
+                        ws.send(json.dumps({'realtimeInput': {'audio': {'data': base64.b64encode(pcm[off:off+32000]).decode(), 'mimeType': 'audio/pcm;rate=16000'}}}))
+                    ws.send(json.dumps({'realtimeInput': {'audioStreamEnd': True}}))
+                server = event.get('serverContent') or {}
+                transcript = server.get('inputTranscription') or {}
+                if transcript.get('text'):
+                    text_parts.append(transcript['text'])
+                    update_task(task_id, phase='transcribing', thought='', result=''.join(text_parts))
+                if server.get('turnComplete'): done.set()
+                if event.get('error'):
+                    errors.append(event['error'].get('message', 'API error')); ready.set(); done.set()
+            except Exception as e:
+                errors.append(str(e)); ready.set(); done.set()
+        def on_error(ws, error): errors.append(str(error)); ready.set(); done.set()
+        update_task(task_id, phase='sending_to_api')
+        ws = ws_client.WebSocketApp('wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=' + api_key,
+            on_open=on_open, on_message=on_message, on_error=on_error)
+        threading.Thread(target=ws.run_forever, kwargs={'sslopt': {'check_hostname': True}}, daemon=True).start()
+        if not ready.wait(30): raise RuntimeError('Gemini Live接続がタイムアウトしました')
+        done.wait(300); ws.close()
+        if errors: raise RuntimeError(errors[0])
+        if task_is_cancelled(task_id): return
+        text = apply_word_replacements(user_id, ''.join(text_parts))
+        update_task(task_id, status='done', thought='', result=text)
+        save_history(user_id, action_type, input_summary, '', text)
+    except Exception as e:
+        logger.error(f"Gemini Live Transcribe task {task_id} failed: {e}", exc_info=True)
+        update_task(task_id, status='error', error='Gemini Live Transcribe処理中にエラーが発生しました')
+
+
 # --- OpenAI Background Processors ---
-def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary, prompt="", keywords=None, languages=None, stream=True, model='gpt-transcribe'):
+def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary, prompt="", keywords=None, languages=None, stream=True, model='gpt-transcribe', diarize=False):
     try:
         if task_is_cancelled(task_id):
             return
@@ -2387,6 +2524,9 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
             files_list = []
             data_list = []
             data_list.append(('model', model))
+            if diarize:
+                data_list.append(('response_format', 'diarized_json'))
+                data_list.append(('chunking_strategy', 'auto'))
             if stream:
                 data_list.append(('stream', 'true'))
             if prompt:
@@ -2441,18 +2581,28 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
                         try:
                             event = json.loads(payload_str)
                             etype = event.get('type')
-                            if etype == 'transcript.text.delta':
+                            if etype == 'transcript.text.delta' and not diarize:
                                 delta = event.get('delta', '')
                                 if not content_started:
                                     update_task(task_id, phase='transcribing')
                                     content_started = True
                                 full_text += delta
                                 update_task(task_id, thought='', result=full_text)
+                            elif etype == 'transcript.text.segment' and diarize:
+                                if not content_started:
+                                    update_task(task_id, phase='transcribing')
+                                    content_started = True
+                                speaker = event.get('speaker', '')
+                                segment = event.get('text', '')
+                                if segment:
+                                    full_text += (f'\n{speaker}: ' if speaker else '\n') + segment
+                                    update_task(task_id, thought='', result=full_text)
                             elif etype == 'transcript.text.done':
                                 if not content_started:
                                     update_task(task_id, phase='transcribing')
                                     content_started = True
-                                full_text = event.get('text', full_text)
+                                if not diarize or not full_text:
+                                    full_text = event.get('text', full_text)
                                 update_task(task_id, thought='', result=full_text)
                         except json.JSONDecodeError:
                             pass
@@ -2478,7 +2628,7 @@ def process_openai_gpt_transcribe_background(task_id, api_key, audio_filepath, u
         update_task(task_id, status='error', error='OpenAI処理中にエラーが発生しました')
 
 
-def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary):
+def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepath, user_id, action_type, input_summary, model='gpt-live-transcribe'):
     try:
         if task_is_cancelled(task_id):
             return
@@ -2523,7 +2673,7 @@ def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepa
                     "audio": {
                         "input": {
                             "format": {"type": "audio/pcm", "rate": 24000},
-                            "transcription": {"model": "gpt-live-transcribe"},
+                            "transcription": {"model": model},
                             "turn_detection": None,
                         }
                     }
@@ -2581,7 +2731,7 @@ def process_openai_gpt_live_transcribe_background(task_id, api_key, audio_filepa
         def on_close(ws, close_status_code, close_msg):
             done_event.set()
 
-        ws_url = "wss://api.openai.com/v1/realtime?model=gpt-live-transcribe"
+        ws_url = "wss://api.openai.com/v1/realtime?model=" + model
         update_task(task_id, phase='sending_to_api')
         ws = ws_client.WebSocketApp(
             ws_url,

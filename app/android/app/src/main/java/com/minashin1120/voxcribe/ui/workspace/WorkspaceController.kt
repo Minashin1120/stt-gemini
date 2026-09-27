@@ -913,6 +913,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
                 when {
                     Models.isGrok(model) -> thoughtText = "[Grok STT は思考プロセスを提供しません。APIが直接文字起こし結果を返します。]"
                     Models.isOpenAi(model) -> thoughtText = "[OpenAIモデルは思考プロセスを提供しません。APIが直接文字起こし結果を返します。]"
+                    Models.isGeminiStt(model) -> thoughtText = "[Gemini Transcribeは文字起こし専用モデルです。]"
                     model == "gemini-3.1-flash-lite" && (thinking == "LOW" || thinking == "MEDIUM") && !sessionThoughtReceived ->
                         thoughtText = "[Flash-Lite は LOW/MEDIUM 設定時に思考プロセスを返しません。表示するには HIGH を選択してください。]"
                 }
@@ -1266,7 +1267,7 @@ class WorkspaceController(private val app: VoxcribeApp) {
         val p = apiKeyPrompt ?: return
         val models = mutableListOf<Pair<String, String>>()
         if (app.secrets.has(KeyType.GEMINI)) models += Models.GEMINI.map { it.value to it.label }
-        if (app.secrets.has(KeyType.OPENAI)) models += listOf("gpt-transcribe" to "GPT-Transcribe", "gpt-live-transcribe" to "GPT-Live Transcribe", "whisper-1" to "Whisper")
+        if (app.secrets.has(KeyType.OPENAI)) models += listOf("gpt-transcribe" to "GPT-Transcribe", "gpt-live-transcribe" to "GPT-Live Transcribe", "whisper-1" to "Whisper", "gpt-4o-transcribe" to "GPT-4o Transcribe", "gpt-4o-mini-transcribe" to "GPT-4o Mini Transcribe", "gpt-4o-transcribe-diarize" to "GPT-4o Speaker Transcribe", "gpt-realtime-whisper" to "GPT-Realtime-Whisper")
         if (app.secrets.has(KeyType.XAI)) models += listOf("grok-stt" to "Grok STT", "grok-live-transcribe" to "Grok Live")
         apiKeyPrompt = p.copy(view = AkView.SWITCH, switchModels = models)
     }
