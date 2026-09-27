@@ -10,6 +10,11 @@ import okio.BufferedSink
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okio.ByteString
 
 sealed class GeminiPart {
     data class Text(val text: String) : GeminiPart()
@@ -23,6 +28,115 @@ sealed class GeminiPart {
 object GeminiClient {
     private const val BASE = "https://generativelanguage.googleapis.com/v1beta/models/"
     private val JSON = "application/json".toMediaType()
+
+    /** Dedicated Gemini Transcribe uses the Files and Interactions APIs. */
+    fun transcribeDedicated(
+        apiKey: String, file: File, mime: String, token: CancelToken,
+        onStatus: (String) -> Unit, onProgress: ((Long, Long) -> Unit)? = null,
+    ): String {
+        if (token.isCancelled) throw CancelledException()
+        onStatus(TaskPhase.SENDING)
+        val start = Request.Builder().url("https://generativelanguage.googleapis.com/upload/v1beta/files")
+            .header("x-goog-api-key", apiKey).header("X-Goog-Upload-Protocol", "resumable")
+            .header("X-Goog-Upload-Command", "start")
+            .header("X-Goog-Upload-Header-Content-Length", file.length().toString())
+            .header("X-Goog-Upload-Header-Content-Type", mime).header("Content-Type", "application/json")
+            .post(JSONObject().put("file", JSONObject().put("display_name", file.name)).toString().toRequestBody(JSON)).build()
+        val startCall = Http.client.newCall(start); token.attach(startCall)
+        val uploadUrl = startCall.execute().use { r ->
+            if (r.code !in 200..201) throw AiException("Gemini Files API Error ${r.code}")
+            r.header("X-Goog-Upload-URL") ?: throw AiException("Gemini Files APIのアップロードURLを取得できませんでした")
+        }
+        val uploadBody = ProgressFileBody(file, mime.toMediaType()) { sent, total -> onProgress?.invoke(sent, total) }
+        val upload = Request.Builder().url(uploadUrl).header("x-goog-api-key", apiKey)
+            .header("X-Goog-Upload-Offset", "0").header("X-Goog-Upload-Command", "upload, finalize")
+            .post(uploadBody).build()
+        val uploadCall = Http.client.newCall(upload); token.attach(uploadCall)
+        val fileUri = uploadCall.execute().use { r ->
+            val raw = r.body.string()
+            if (r.code !in 200..201) throw AiException("Gemini音声アップロードエラー ${r.code}")
+            JSONObject(raw).optJSONObject("file")?.optString("uri")?.takeIf { it.isNotEmpty() }
+                ?: throw AiException("Gemini Files APIの応答に音声URIがありません")
+        }
+        if (token.isCancelled) throw CancelledException()
+        onStatus(TaskPhase.TRANSCRIBING)
+        val body = JSONObject().put("model", "gemini-3.5-transcribe")
+            .put("input", org.json.JSONArray().put(JSONObject().put("type", "audio").put("uri", fileUri).put("mime_type", mime)))
+        val req = Request.Builder().url("https://generativelanguage.googleapis.com/v1beta/interactions")
+            .header("x-goog-api-key", apiKey).post(body.toString().toRequestBody(JSON)).build()
+        val call = Http.client.newCall(req); token.attach(call)
+        return call.execute().use { r ->
+            val raw = r.body.string()
+            if (r.code != 200) throw AiException("Gemini Transcribe API Error ${r.code}")
+            val obj = JSONObject(raw)
+            obj.optString("output_text").ifEmpty {
+                val outputs = obj.optJSONArray("outputs") ?: return@use ""
+                buildString {
+                    for (i in 0 until outputs.length()) {
+                        val content = outputs.optJSONObject(i)?.optJSONArray("content") ?: continue
+                        for (j in 0 until content.length()) {
+                            val part = content.optJSONObject(j) ?: continue
+                            if (part.optString("type") == "text") append(part.optString("text"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Dedicated Gemini Live Transcribe session fed with a saved recording as PCM16 audio. */
+    fun transcribeLive(
+        apiKey: String, file: File, token: CancelToken, onStatus: (String) -> Unit,
+        onText: (String) -> Unit,
+    ): String {
+        if (token.isCancelled) throw CancelledException()
+        val pcm = try { AudioDecoder.decodeToPcm16Mono(file, 16000) }
+            catch (_: Exception) { throw AiException("音声変換に失敗しました。") }
+        val done = CountDownLatch(1); val ready = CountDownLatch(1)
+        val text = StringBuilder(); var error: String? = null; lateinit var ws: WebSocket
+        onStatus(TaskPhase.SENDING)
+        val request = Request.Builder()
+            .url("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=$apiKey")
+            .build()
+        ws = Http.client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                webSocket.send(JSONObject().put("setup", JSONObject().put("model", "models/gemini-3.5-transcribe-live")
+                    .put("generationConfig", JSONObject().put("responseModalities", org.json.JSONArray().put("TEXT"))
+                        .put("inputAudioTranscription", JSONObject()))).toString())
+            }
+            override fun onMessage(webSocket: WebSocket, message: String) {
+                try {
+                    val event = JSONObject(message)
+                    if (event.has("setupComplete")) {
+                        ready.countDown(); onStatus(TaskPhase.RECEIVING)
+                        for (off in pcm.indices step 32000) {
+                            if (token.isCancelled) break
+                            val end = minOf(pcm.size, off + 32000)
+                            val b64 = Base64.encodeToString(pcm, off, end - off, Base64.NO_WRAP)
+                            webSocket.send(JSONObject().put("realtimeInput", JSONObject().put("audio", JSONObject()
+                                .put("data", b64).put("mimeType", "audio/pcm;rate=16000"))).toString())
+                        }
+                        webSocket.send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)).toString())
+                    }
+                    val server = event.optJSONObject("serverContent")
+                    val delta = server?.optJSONObject("inputTranscription")?.optString("text", "").orEmpty()
+                    if (delta.isNotEmpty()) { text.append(delta); onStatus(TaskPhase.TRANSCRIBING); onText(delta) }
+                    if (server?.optBoolean("turnComplete", false) == true) { done.countDown(); webSocket.close(1000, null) }
+                    event.optJSONObject("error")?.let { error = it.optString("message"); ready.countDown(); done.countDown() }
+                } catch (_: Exception) { }
+            }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                error = t.message ?: "Gemini Live API接続エラー"; ready.countDown(); done.countDown()
+            }
+        })
+        token.attach(ws)
+        if (!ready.await(30, TimeUnit.SECONDS)) { ws.cancel(); throw AiException("Gemini Live接続がタイムアウトしました") }
+        if (token.isCancelled) throw CancelledException()
+        done.await(300, TimeUnit.SECONDS); ws.close(1000, null)
+        if (token.isCancelled) throw CancelledException()
+        if (error != null) throw AiException("Gemini Live APIエラー")
+        return text.toString()
+    }
 
     private class PayloadBody(
         private val parts: List<GeminiPart>,

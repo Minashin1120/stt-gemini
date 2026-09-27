@@ -201,6 +201,10 @@ object OpenAiClient {
                 ProgressFileBody(file, "application/octet-stream".toMediaType()) { s, t -> onUploadProgress?.invoke(s, t) }
             )
             .addFormDataPart("model", model)
+            .apply { if (model == "gpt-4o-transcribe-diarize") {
+                addFormDataPart("response_format", "diarized_json")
+                addFormDataPart("chunking_strategy", "auto")
+            } }
             .apply { if (model != "whisper-1") addFormDataPart("stream", "true") }
             .build()
         onStatus(TaskPhase.SENDING)
@@ -249,13 +253,25 @@ object OpenAiClient {
                                 switched = true
                                 onStatus(TaskPhase.TRANSCRIBING)
                             }
-                            full.append(d)
+                            if (model != "gpt-4o-transcribe-diarize") full.append(d)
                             onText(d)
+                        }
+                        "transcript.text.segment" -> if (model == "gpt-4o-transcribe-diarize") {
+                            val speaker = ev.optString("speaker", "")
+                            val segment = ev.optString("text", "")
+                            if (segment.isNotEmpty()) {
+                                if (full.isNotEmpty()) full.append("\n")
+                                if (speaker.isNotEmpty()) full.append("$speaker: ")
+                                full.append(segment)
+                                onText("\n" + (if (speaker.isNotEmpty()) "$speaker: " else "") + segment)
+                            }
                         }
                         "transcript.text.done" -> {
                             val t = ev.optString("text", full.toString())
-                            full.setLength(0)
-                            full.append(t)
+                            if (model != "gpt-4o-transcribe-diarize" || full.isEmpty()) {
+                                full.setLength(0)
+                                full.append(t)
+                            }
                         }
                     }
                 }
@@ -278,6 +294,7 @@ object OpenAiClient {
         token: CancelToken,
         onStatus: (String) -> Unit,
         onText: (String) -> Unit,
+        model: String = "gpt-live-transcribe",
     ): String {
         if (token.isCancelled) throw CancelledException()
         val pcm = try {
@@ -294,7 +311,7 @@ object OpenAiClient {
 
         onStatus(TaskPhase.SENDING)
         val req = Request.Builder()
-            .url("wss://api.openai.com/v1/realtime?model=gpt-live-transcribe")
+            .url("wss://api.openai.com/v1/realtime?model=$model")
             .header("Authorization", "Bearer $apiKey")
             .header("User-Agent", Http.userAgent)
             .build()
@@ -306,7 +323,7 @@ object OpenAiClient {
                             "audio", JSONObject().put(
                                 "input", JSONObject()
                                     .put("format", JSONObject().put("type", "audio/pcm").put("rate", 24000))
-                                    .put("transcription", JSONObject().put("model", "gpt-live-transcribe"))
+                                    .put("transcription", JSONObject().put("model", model))
                                     .put("turn_detection", JSONObject.NULL)
                             )
                         )
