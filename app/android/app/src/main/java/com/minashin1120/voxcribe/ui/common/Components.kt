@@ -80,6 +80,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -377,6 +379,8 @@ fun <T> CustomSelect(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    deprecatedOptions: Set<T> = emptySet(),
+    deprecatedDescription: String = "廃止予定（2027年2月26日予定）",
 ) {
     val t = com.minashin1120.voxcribe.ui.theme.T.c
     var open by remember { mutableStateOf(false) }
@@ -391,6 +395,9 @@ fun <T> CustomSelect(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(label, color = t.text, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (selected in deprecatedOptions) {
+                Text("ⓘ 廃止予定", color = t.muted.copy(alpha = .75f), fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp).semantics { contentDescription = deprecatedDescription })
+            }
             Icon(Icons.Filled.KeyboardArrowDown, null, tint = Bs.secondary, modifier = Modifier.size(16.dp).rotate(if (open) 180f else 0f))
         }
         DropdownMenu(
@@ -399,7 +406,15 @@ fun <T> CustomSelect(
         ) {
             options.forEach { (v, l) ->
                 DropdownMenuItem(
-                    text = { Text(l, color = t.text, fontSize = 14.sp) },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(l, color = t.text, fontSize = 14.sp)
+                            if (v in deprecatedOptions) {
+                                Spacer(Modifier.width(6.dp))
+                                Text("ⓘ 廃止予定", color = t.muted.copy(alpha = .75f), fontSize = 11.sp, modifier = Modifier.semantics { contentDescription = deprecatedDescription })
+                            }
+                        }
+                    },
                     onClick = { open = false; onSelect(v) },
                     modifier = Modifier.heightIn(min = 36.dp)
                 )
@@ -574,4 +589,3 @@ fun Divider(modifier: Modifier = Modifier) {
 fun MutedText(text: String, modifier: Modifier = Modifier, fontSize: TextUnit = 12.sp) {
     Text(text, color = T.c.muted, fontSize = fontSize, modifier = modifier)
 }
-
