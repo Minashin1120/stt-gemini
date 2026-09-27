@@ -1202,6 +1202,14 @@ body.app-body {
     transition: background .12s;
 }
 
+.model-deprecation-info {
+    color: var(--text-muted, #8a929a);
+    font-size: .78em;
+    margin-left: .2em;
+    vertical-align: .04em;
+    cursor: help;
+}
+
 .custom-select-option:hover {
     background: rgba(13, 110, 253, 0.08);
 }

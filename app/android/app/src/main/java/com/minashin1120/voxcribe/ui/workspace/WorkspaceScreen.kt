@@ -227,7 +227,10 @@ private fun InputCard(ctrl: WorkspaceController) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column {
                     LabelWithIcon("モデル")
-                    CustomSelect(Models.ALL.map { it.value to it.label }, ctrl.model, { ctrl.selectModel(it) })
+                    CustomSelect(
+                        Models.ALL.map { it.value to it.label }, ctrl.model, { ctrl.selectModel(it) },
+                        deprecatedOptions = setOf("gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-4o-transcribe-diarize")
+                    )
                 }
                 Column {
                     LabelWithIcon("推論レベル")

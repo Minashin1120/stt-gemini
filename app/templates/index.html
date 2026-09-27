@@ -211,6 +211,7 @@
                         <div class="custom-select" id="modelSelect">
                             <button class="custom-select-toggle" type="button">
                                 <span class="custom-select-text">3.6 Flash</span>
+                                <i id="modelDeprecatedInfo" class="bi bi-info-circle-fill model-deprecation-info d-none" role="img" aria-label="OpenAIによる廃止予定モデルです。2027年2月26日予定。" title="OpenAIによる廃止予定モデルです（2027年2月26日予定）。"></i>
                                 <i class="bi bi-chevron-down"></i>
                             </button>
                             <div class="custom-select-menu">
@@ -226,9 +227,9 @@
                                 <button class="custom-select-option" data-value="gpt-transcribe" type="button">GPT-Trans.</button>
                                 <button class="custom-select-option" data-value="gpt-live-transcribe" type="button">GPT-Live</button>
                                 <button class="custom-select-option" data-value="whisper-1" type="button">Whisper</button>
-                                <button class="custom-select-option" data-value="gpt-4o-transcribe" type="button">GPT-4o Transcribe</button>
-                                <button class="custom-select-option" data-value="gpt-4o-mini-transcribe" type="button">GPT-4o Mini Transcribe</button>
-                                <button class="custom-select-option" data-value="gpt-4o-transcribe-diarize" type="button">GPT-4o Speaker Transcribe</button>
+                                <button class="custom-select-option" data-value="gpt-4o-transcribe" type="button">GPT-4o Transcribe <i class="bi bi-info-circle model-deprecation-info" role="img" aria-label="OpenAIによる廃止予定モデルです。2027年2月26日予定。" title="OpenAIによる廃止予定モデルです（2027年2月26日予定）。"></i></button>
+                                <button class="custom-select-option" data-value="gpt-4o-mini-transcribe" type="button">GPT-4o Mini Transcribe <i class="bi bi-info-circle model-deprecation-info" role="img" aria-label="OpenAIによる廃止予定モデルです。2027年2月26日予定。" title="OpenAIによる廃止予定モデルです（2027年2月26日予定）。"></i></button>
+                                <button class="custom-select-option" data-value="gpt-4o-transcribe-diarize" type="button">GPT-4o Speaker Transcribe <i class="bi bi-info-circle model-deprecation-info" role="img" aria-label="OpenAIによる廃止予定モデルです。2027年2月26日予定。" title="OpenAIによる廃止予定モデルです（2027年2月26日予定）。"></i></button>
                                 <button class="custom-select-option" data-value="gpt-realtime-whisper" type="button">GPT-Realtime-Whisper</button>
                             </div>
                         </div>
@@ -2172,6 +2173,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const textEl = document.querySelector('#modelSelect .custom-select-text');
         const opt = document.querySelector(`#modelSelect .custom-select-option[data-value="${value}"]`);
         if (textEl && opt) textEl.textContent = opt.textContent;
+        syncModelDeprecationInfo(value);
         const savedThink = localStorage.getItem('stt_t_' + currentModel);
         if (savedThink) el.think.value = savedThink;
         updatePostprocessBar();
@@ -2185,6 +2187,10 @@ document.addEventListener('DOMContentLoaded', () => {
             el.think.title = '';
         }
         syncThinkDropdown();
+    }
+    function syncModelDeprecationInfo(value) {
+        const info = document.getElementById('modelDeprecatedInfo');
+        if (info) info.classList.toggle('d-none', !['gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe-diarize'].includes(value));
     }
     function syncThinkDropdown() {
         const sel = document.getElementById('thinkingLevelSelect');
@@ -2225,6 +2231,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const textEl = document.querySelector('#modelSelect .custom-select-text');
     const activeOpt = document.querySelector(`#modelSelect .custom-select-option[data-value="${currentModel}"]`);
     if (textEl && activeOpt) textEl.textContent = activeOpt.textContent;
+    syncModelDeprecationInfo(currentModel);
     const savedThink = localStorage.getItem('stt_t_' + currentModel);
     if (savedThink) el.think.value = savedThink;
     const noThinkModels = ['grok-stt', 'grok-live-transcribe', 'gpt-transcribe', 'gpt-live-transcribe', 'whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe-diarize', 'gpt-realtime-whisper', 'gemini-3.5-transcribe', 'gemini-3.5-transcribe-live'];
