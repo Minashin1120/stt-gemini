@@ -17,7 +17,7 @@ Web 版の対応先は `app/static/js/index/*.js`（[README](../../../../../../.
 
 `WorkspaceController` は Application スコープで 1 つ保持され、**状態は `WorkspaceController.kt` に集約**し、
 処理は用途別ファイルの **拡張関数**（`fun WorkspaceController.xxx()`）として書いています。
-呼び出し側（`ctrl.rec(...)` など）は分割前と同じ書き方のままで、同じパッケージなので import も不要です。
+呼び出し側（`ctrl.rec(...)` など）は分割前と同じ書き方のままです。**同じパッケージ（`ui.workspace`）なら import 不要ですが、別パッケージから呼ぶ場合は拡張関数ごとの import が必要**です（例: `import com.minashin1120.voxcribe.ui.workspace.prepareMic`。現在は `MainActivity.kt` と `ui/settings/SettingsScreen.kt` が該当）。import 漏れは CI で `Unresolved reference '...' on receiver of type 'WorkspaceController'` になります。
 
 | ファイル | 内容 | Web 版の対応 |
 |----------|------|--------------|
