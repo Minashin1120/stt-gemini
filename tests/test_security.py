@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -21,6 +22,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 with patch.object(threading.Thread, 'start', lambda self: None):
     import app as application
+    import streaming
+
+
+def read_index_source():
+    """index.html と、そこから読み込む static/js/index/*.js（読み込み順）を連結して返す。"""
+    app_dir = os.path.join(os.path.dirname(__file__), '..', 'app')
+    with open(os.path.join(app_dir, 'templates', 'index.html'), encoding='utf-8') as template:
+        html = template.read()
+    scripts = re.findall(r"static_v\('(js/index/[^']+\.js)'\)", html)
+    parts = [html]
+    for script in scripts:
+        with open(os.path.join(app_dir, 'static', script), encoding='utf-8') as handle:
+            parts.append(handle.read())
+    return '\n'.join(parts)
 
 
 class FakeRedis:
@@ -314,11 +329,7 @@ class SecurityTests(unittest.TestCase):
         response.close()
 
     def test_recording_uses_initial_exact_constraints_without_reapplying(self):
-        template_path = os.path.join(
-            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
-        )
-        with open(template_path, encoding='utf-8') as template:
-            source = template.read()
+        source = read_index_source()
         acquisition = source[source.index('function buildMicConstraintAttempts'):source.index('function appendCapturedPcm')]
         self.assertIn("echoCancellation: { exact: false }", acquisition)
         self.assertIn("noiseSuppression: { exact: false }", acquisition)
@@ -327,11 +338,7 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn('googNoiseSuppression', acquisition)
 
     def test_recording_noise_off_prioritizes_single_exact_constraints(self):
-        template_path = os.path.join(
-            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
-        )
-        with open(template_path, encoding='utf-8') as template:
-            source = template.read()
+        source = read_index_source()
         builder = source[
             source.index('function buildMicConstraintAttempts'):
             source.index('function summarizeMicState')
@@ -341,11 +348,7 @@ class SecurityTests(unittest.TestCase):
         self.assertLess(builder.index("label: noiseOn ? 'processed-exact' : 'raw-exact'"), builder.index("label: noiseOn ? 'processed-relaxed' : 'raw-relaxed'"))
 
     def test_recording_stops_when_browser_processing_state_is_unverified(self):
-        template_path = os.path.join(
-            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
-        )
-        with open(template_path, encoding='utf-8') as template:
-            source = template.read()
+        source = read_index_source()
         recording = source[source.index('async function rec('):source.index('el.recNew.onclick')]
         verification = recording.index('assertMicProcessingVerified(noiseOn, audioStream)')
         recording_started = recording.index('isRecording = true')
@@ -359,11 +362,7 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('id="micProcessingHelp"', source)
 
     def test_mobile_recording_pins_the_built_in_microphone_by_exact_device_id(self):
-        template_path = os.path.join(
-            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
-        )
-        with open(template_path, encoding='utf-8') as template:
-            source = template.read()
+        source = read_index_source()
         acquisition = source[
             source.index('const EXTERNAL_MIC_LABEL_PATTERN'):
             source.index('function appendCapturedPcm')
@@ -382,11 +381,7 @@ class SecurityTests(unittest.TestCase):
                 application.app.jinja_env.get_template(template_name)
 
     def test_improvement_input_is_not_treated_as_a_password_username(self):
-        template_path = os.path.join(
-            os.path.dirname(__file__), '..', 'app', 'templates', 'index.html'
-        )
-        with open(template_path, encoding='utf-8') as template:
-            source = template.read()
+        source = read_index_source()
         self.assertIn(
             'id="instructionInput" name="improvement_instruction" '
             'class="form-control" placeholder="例: 要約して" autocomplete="off"',
@@ -403,7 +398,7 @@ class SecurityTests(unittest.TestCase):
         response.iter_lines.return_value = []
         with patch.object(application.requests, 'post', return_value=response) as post:
             with patch.object(application, 'update_task'), patch.object(application, 'save_history'):
-                application.process_gemini_background(
+                streaming.process_gemini_background(
                     'task-id', 'private-key', {'contents': []}, self.first_id, 'test', 'test'
                 )
         url = post.call_args.args[0]

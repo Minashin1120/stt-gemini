@@ -121,11 +121,13 @@ stt-gemini/
 │   └── PROMPTS.md            # Gemini 向けプロンプト全文・組み立て方
 ├── app/
 │   ├── README.md             # バックエンド・API・DB
-│   ├── app.py                # メインロジック（単一モジュール）
+│   ├── app.py                # ハブ（設定・DB・タスク管理・フック）。ルート/処理は routes_*.py 等に分割（→ app/README.md）
 │   ├── requirements.txt
 │   ├── templates/            # Jinja2 テンプレート（→ templates/README.md）
-│   ├── static/               # CSS など（→ static/README.md）
+│   ├── static/               # CSS・画面 JS（→ static/README.md）
 │   └── uploads/              # 音声一時保存（git 管理外）
+├── scripts/
+│   └── check_code_size.py    # コード肥大チェック（AGENTS.md 参照）
 └── tests/
     ├── README.md             # テストの実行方法
     └── test_security.py      # セキュリティ・アップロード系ユニットテスト
@@ -141,7 +143,7 @@ stt-gemini/
 | [docs/PROMPTS.md](docs/PROMPTS.md) | **使用プロンプトの定義・動的コンテキスト・間隔修正指示** |
 | [app/README.md](app/README.md) | 環境変数、モデル、ルート API、DB スキーマ、Redis タスク |
 | [app/templates/README.md](app/templates/README.md) | 画面テンプレートと主要 JS 責務 |
-| [app/static/README.md](app/static/README.md) | テーマ CSS |
+| [app/static/README.md](app/static/README.md) | CSS・画面 JS の構成（[css/](app/static/css/README.md) · [js/index/](app/static/js/index/README.md)） |
 | [tests/README.md](tests/README.md) | テスト実行とカバレッジの意図 |
 
 ---

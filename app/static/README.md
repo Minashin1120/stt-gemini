@@ -1,6 +1,6 @@
 # `app/static/` — 静的アセット
 
-Flask の `static` フォルダです。CSS と録音用 AudioWorklet をリポジトリ管理しています。
+Flask の `static` フォルダです。CSS、メイン画面の JavaScript、録音用 AudioWorklet をリポジトリ管理しています。
 
 親ドキュメント: [../README.md](../README.md) · テンプレート: [../templates/README.md](../templates/README.md)
 
@@ -10,25 +10,30 @@ Flask の `static` フォルダです。CSS と録音用 AudioWorklet をリポ�
 
 ```text
 static/
-├── css/
-│   └── style.css                 # テーマ別スタイル・アニメーション・モーダル
+├── css/                          # 自前スタイル（→ css/README.md）
+│   ├── base.css                  #   変数・アニメーション・処理中バー
+│   ├── themes.css                #   テーマ別
+│   ├── api-key-modal.css         #   API キーモーダル（Liquid Glass）
+│   ├── shell.css                 #   アプリシェル全体
+│   └── custom-select.css         #   モデル選択ドロップダウン
 └── js/
-    └── pcm-capture-worklet.js    # 音声スレッド上でPCMを欠落なく収集
+    ├── pcm-capture-worklet.js    # 音声スレッド上でPCMを欠落なく収集
+    └── index/                    # メイン画面のロジック 16 ファイル（→ js/index/README.md）
 ```
 
-JavaScript の大半は `templates/index.html` 等にインライン配置し、リアルタイム録音だけを
-メインスレッドの負荷から分離するため AudioWorklet にしています（外部 JS バンドルなし）。
-Bootstrap / Bootstrap Icons は CDN から読み込みます。
+- CSS は `templates/partials/_styles.html` が並べて読み込む（**並び順 = カスケード順**）
+- メイン画面の JavaScript は `templates/index.html` が `js/index/*.js` を依存順に読み込む（古典スクリプト・同一グローバルスコープ）
+- どちらも URL は `static_v('...')`（`app.py` の Jinja ヘルパー）で更新時刻付きにするため、キャッシュバスターは手で上げない
+- 他のテンプレート（`base.html` `welcome.html` `login.html` など）の小さなインライン JS はそのまま
+- リアルタイム録音だけは、メインスレッドの負荷から分離するため AudioWorklet（`pcm-capture-worklet.js`）にしている
+- Bootstrap / Bootstrap Icons は CDN から読み込む
 
 ---
 
-## `css/style.css`
+## `css/`
 
-### テーマ
-
+詳細（ファイル別の内容・編集のヒント）は [css/README.md](css/README.md)。テーマは
 `html[data-theme="..."]` で切り替え（`base.html` + `localStorage.app_theme`）。
-
-想定テーマ例:
 
 | 値 | 雰囲気 |
 |----|--------|
@@ -37,27 +42,20 @@ Bootstrap / Bootstrap Icons は CDN から読み込みます。
 | `retro` | レトロ調 |
 | `electronic` | ダーク電子機器風 |
 
-テーマ名の正確な列挙は `style.css` 内の `[data-theme=...]` セレクタ、および設定画面のセレクトを参照してください。
+テーマ名の正確な列挙は `css/themes.css` 内の `[data-theme=...]` セレクタ、および設定画面のセレクトを参照してください。
 
-### 主な UI ブロック
+## `js/index/`
 
-- カード・タブ・録音ビジュアライザ周りのレイアウト
-- 処理中バー（`.processing-bar`）
-- API キーモーダル（`.api-key-modal`）: Liquid Glass 風の疑似屈折、色収差インセット、マウス追従グロー（`--ak-glow-x` / `--ak-glow-y`）
-- ダークテーマ向けの同モーダル色調整
+詳細は [js/index/README.md](js/index/README.md)。
 
-### 編集のヒント
-
-1. テーマ差分は可能な限り `data-theme` セレクタに閉じる
-2. モーダルの `z-index` / backdrop は Bootstrap モーダルと競合しやすいので、変更時はログイン・削除確認・API キーの重なりを確認
-3. アニメーションを増やす場合は `prefers-reduced-motion` への配慮を検討
+---
 
 ## `js/pcm-capture-worklet.js`
 
-`index.html` の Web Audio グラフからモノラル float PCM を受け、4096サンプル単位で
+`js/index/capture.js` の Web Audio グラフからモノラル float PCM を受け、4096サンプル単位で
 メインスレッドへ転送します。一時停止と停止直前の端数 `flush` に対応します。
 Chrome公式が非推奨としている `ScriptProcessorNode` は、AudioWorkletを利用できない
-ブラウザ向けのフォールバックとしてのみ `index.html` に残しています。
+ブラウザ向けのフォールバックとしてのみ `js/index/capture.js` に残しています。
 
 ---
 

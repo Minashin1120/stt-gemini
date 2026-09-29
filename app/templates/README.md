@@ -16,14 +16,16 @@ Jinja2 + Bootstrap 5.3 + Vanilla JavaScript です。ビルドツールは使い
 | `register.html` | 新規登録 |
 | `request_unlock.html` | アカウントロック解除申請 |
 | `settings.html` | Gemini / xAI API キー、保持時間、テーマ保存 |
-| `index.html` | **メイン画面**（録音・アップロード・結果・改善・履歴・単語セット） |
+| `index.html` | **メイン画面のマークアップとモーダル**（約 400 行）。ロジックは `../static/js/index/*.js` |
 | `partials/_word_sets.html` | 単語セット管理 UI の部分テンプレート |
+| `partials/_styles.html` | 自前 CSS の `<link>` 一覧（**並び順 = カスケード順**）。`base.html` と `welcome.html` が include |
 
 ---
 
 ## `index.html` の主な責務
 
-フロントのビジネスロジックの大半がここにあります（単一 HTML 内の `<script>`）。
+`index.html` は HTML と `<style>`、およびスクリプトの読み込み（`static_v('js/index/xxx.js')` を依存順に 16 本）だけを持ちます。
+フロントのロジックの大半は [../static/js/index/](../static/js/index/README.md)（ファイル別の責務表あり）にあります。以下は機能ごとの入口です。
 
 ### 音声入力
 
@@ -53,7 +55,7 @@ Jinja2 + Bootstrap 5.3 + Vanilla JavaScript です。ビルドツールは使い
 
 - API キー未設定モーダル（Liquid Glass 風、リロードなしで保存して続行）
 - 履歴コピー、個別削除、ファイルマネージャ（大容量は並列 DL）
-- 単語セットモーダル（`/api/word_sets/manage_html` 等）
+- 単語セットモーダル（`/api/word_sets/manage_html` 等 → `wordsets.js`）
 
 ---
 
@@ -81,9 +83,9 @@ document.documentElement.setAttribute('data-theme', localStorage.getItem('app_th
 
 ## 編集時の注意
 
-1. `index.html` は行数が多いため、録音（`rec` / `vis`）、アップロード、SSE、改善のブロックを意識して変更する
-2. 識別子の重複（過去に `stream` 名衝突で SyntaxError）に注意
+1. ロジックは `static/js/index/` のファイル単位（録音は `audio-dsp` `mic` `capture` `recording`、アップロード/SSE は `stream` `transfer`、改善は `actions`）で変更する。読み込み順・グローバル共有の規約は js/index/README.md
+2. 識別子の重複（過去に `stream` 名衝突で SyntaxError）に注意。分割後は**全ファイルが同一グローバルスコープ**なので、重複は `SyntaxError` か意図しない上書きになる
 3. モバイル Chrome のマイク制約は歴史的に挙動が変わりやすい。OFFは取得後の `applyConstraints` ではなく、初回 `getUserMedia` の exact 制約で録音プリセットを決めること。`buildMicConstraintAttempts` は OFF 時に「EC単独の `exact:false` → NS単独 → 全項目の exact → relaxed」の順を保つこと。録音開始前の実効値検証に失敗した場合は録音を開始しない
 4. モバイルのマイクは許可後に `enumerateDevices()` で「内蔵」候補を探し、`deviceId: { exact: ... }` で再取得する。`default` は外部機器へ切り替わり得るため固定先として扱わない
 5. 実機確認では「内蔵マイク: 固定確認」「Chrome処理: OFF確認」バッジ、入力dBFS、実ファイル、小声の文字起こしを確認すること。`getSettings()` は端末メーカーの前段DSPまでは証明しない
-6. プロンプト定数の大半は **サーバー側**。フロントで持つ固定文は間隔修正の `fixInstruction` のみ（現状）
+6. プロンプト定数の大半は **サーバー側**（`app/prompts.py`）。フロントで持つ固定文は間隔修正の `fixInstruction`（`js/index/actions.js`）のみ（現状）

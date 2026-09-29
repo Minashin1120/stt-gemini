@@ -1,6 +1,6 @@
 # `app/` — バックエンド
 
-Flask アプリケーション本体です。ロジックはほぼ単一モジュール `app.py` に集約されています。
+Flask アプリケーション本体です。共有オブジェクトとフックは `app.py`（ハブ）に置き、ルートとバックグラウンド処理は用途別のモジュールに分けています（[モジュール構成](#モジュール構成)）。
 
 関連ドキュメント:
 
@@ -15,13 +15,49 @@ Flask アプリケーション本体です。ロジックはほぼ単一モジ�
 
 | パス | 役割 |
 |------|------|
-| `app.py` | ルート、認証、Gemini/xAI 呼び出し、Redis タスク、クリーンアップ |
+| `app.py` | ハブ: 設定・拡張・DB モデル・Redis タスク管理・セキュリティフック・共通ヘルパー・クリーンアップ。末尾で下記モジュールを import |
+| `routes_*.py` / `streaming.py` / `processors*.py` / `prompts.py` | ルートとバックグラウンド処理（→ 下記） |
 | `requirements.txt` | Python 依存（ピン留め） |
 | `.env` | 秘密情報（**git 管理外**） |
 | `templates/` | Jinja2 HTML |
 | `static/` | CSS 等 |
 | `uploads/` | ユーザー音声の一時保存（**git 管理外**） |
 | `uploads/_chunks/` | 並列アップロード用チャンク（1 時間で削除） |
+
+---
+
+## モジュール構成
+
+`app.py` を 1 ファイルに保つとエージェントの読み込みコストが大きいため、用途別に分割しています。
+エンドポイント名・URL・挙動は分割前と同一です（`url_map` を分割前後で比較して一致を確認済み）。
+
+| ファイル | 内容 | 主な名前 |
+|----------|------|----------|
+| `app.py` | ハブ（約 750 行）。設定、`db` / `login_manager` / `sock` / `fernet` / `redis_client`、許可モデル定数、タスク管理、レート制限、CSRF・`before_request` / `after_request`、DB モデル、単語・履歴コンテキスト、`cleanup_old_data`、`static_v()` | `create_task` `update_task` `get_task` `check_security` `User` `History` |
+| `routes_auth.py` | 画面・認証・設定・API キー・アカウント削除 | `/`, `/welcome`, `/login`, `/register`, `/settings`, `/api/save_api_key` |
+| `routes_words.py` | 単語セット / 単語 / 読み仮名生成 / インポート・エクスポート | `/api/word_sets/*`, `/api/words/*`, `/api/yomigana/generate` |
+| `routes_transcribe.py` | 文字起こし系ルート | `/transcribe`, `/transcribe_live_finalize`, `/reanalyze`, `/improve`, `/correct_rephrase` |
+| `routes_grok_live.py` | Grok Live（WebSocket） | `ws_grok_live` |
+| `routes_files.py` | ファイル・履歴 API、チャンクアップロード | `/api/upload_chunk`, `/api/upload_complete`, `/api/files`, `/api/history` |
+| `routes_tasks.py` | タスク一覧・キャンセル・SSE 再接続 | `/api/tasks`, `/api/task_stream/<id>` |
+| `streaming.py` | Gemini 汎用バックグラウンド処理と SSE ジェネレータ | `process_gemini_background` `stream_task_updates` `create_stream_response` |
+| `processors.py` | Gemini 文字起こし / Gemini Live / Grok STT のバックグラウンド処理 | `process_gemini_transcribe_background` `process_grok_stt_background` |
+| `processors_openai.py` | OpenAI（GPT Transcribe / Whisper / Realtime）のバックグラウンド処理 | `process_openai_gpt_transcribe_background` |
+| `prompts.py` | プロンプト定数と組み立て（全文は [../docs/PROMPTS.md](../docs/PROMPTS.md)） | `VERBATIM_INSTRUCTION` `build_transcription_prompt` |
+
+### 依存の向きと規約（重要）
+
+```text
+app.py（ハブ）  ←  routes_* / streaming / processors*   （各モジュールが ハブ を import）
+                    routes_*  →  streaming / processors* / prompts   （一方向。循環させない）
+```
+
+- ハブは **定義をすべて終えた最後**に分割モジュールを `import` する。ルートは `@app.route` で登録されるため、import されないとエンドポイントが消える。**新しいモジュールを足したら `app.py` 末尾の import 行にも足す**
+- 各モジュールの先頭は `import app as core` と `from app import <名前>`。不変のオブジェクト（`app` `db` `logger` `User` 定数など）は `from app import ...` で取る
+- **テストが差し替える可変名は `core.<名前>` で参照する**: `core.redis_client` `core.create_task` `core.update_task` `core.get_task` `core.save_history` `core.verify_turnstile` `core.MAX_CHUNK_BYTES` `core.MAX_XAI_AUDIO_BYTES`。`from app import redis_client` と書くと、`patch.object(application, ...)` や `application.redis_client = FakeRedis()` が効かなくなる
+- 直接起動（`python app.py`）でも `import app` が同じモジュールを指すよう、`app.py` 冒頭で `sys.modules['app']` を張っている。gunicorn の `app:app` はそのまま動く
+- 関数の置き場所を動かしたら、`tests/test_security.py` の `application.<名前>` / `streaming.<名前>` も見直す
+- 構文・未定義名の確認: `pip install pyflakes` のうえ `python -m pyflakes app/*.py`（`undefined name` が出ないこと）
 
 ---
 
@@ -255,4 +291,4 @@ ALLOWED_MODELS = {
 ## プロンプト
 
 文字起こし・改善で使う指示文はすべて [../docs/PROMPTS.md](../docs/PROMPTS.md) にまとめています。  
-定数名: `VERBATIM_INSTRUCTION`, `REPHRASE_AWARE_INSTRUCTION`, `FILLER_REMOVAL_RULE`。
+定数は [prompts.py](prompts.py)（`VERBATIM_INSTRUCTION`, `REPHRASE_AWARE_INSTRUCTION`, `FILLER_REMOVAL_RULE` など）に定義しています。
