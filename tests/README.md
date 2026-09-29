@@ -55,7 +55,7 @@ python -m unittest tests.test_security -v
 あえて薄い／未カバーになりやすい箇所:
 
 - 実際の Gemini / xAI ストリーミング応答のパース
-- フロントエンド（`index.html` の録音・SSE 再接続）
+- フロントエンド（`static/js/index/` の録音・SSE 再接続。テストは `index.html` と `js/index/*.js` を連結した文字列に対する文字列アサーションのみ）
 - Apache / Gunicorn 配置
 
 E2E やプロンプト品質は手動確認（[docs/PROMPTS.md](../docs/PROMPTS.md) の変更指針参照）を想定しています。

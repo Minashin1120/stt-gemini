@@ -1,7 +1,7 @@
 # 使用プロンプト一覧
 
 本アプリが Gemini API に送るテキスト指示（プロンプト）の定義と組み立て方です。  
-ソース上の定数・関数は主に `app/app.py` にあります。
+ソース上の定数・関数は主に `app/prompts.py`（プロンプト）と `app/routes_transcribe.py` などのルートにあります。
 
 > **注意**: Grok STT (`grok-stt`) はプロンプト非対応の純粋な STT API です。  
 > 単語リストはサーバー側の文字列置換で適用し、言い直し修正・フィラー除去・Thinking は使えません。
@@ -82,7 +82,7 @@ If you hear something similar to the reading on the left, strictly use the word 
 
 ## 3. 文字起こしタスク指示（定数）
 
-定義場所: `app/app.py`（`VERBATIM_INSTRUCTION` 付近）
+定義場所: `app/prompts.py`（`VERBATIM_INSTRUCTION` 付近）
 
 ### 3.1 一字一句モード（デフォルト）— `VERBATIM_INSTRUCTION`
 
@@ -239,7 +239,7 @@ TASK: {base_instruction}
 
 ## 7. 間隔修正（Flash-Lite 用 UI）
 
-フロントエンド `app/templates/index.html` の「間隔修正」ボタンは、`/improve` を固定指示で呼びます。  
+フロントエンド `app/static/js/index/actions.js` の「間隔修正」ボタンは、`/improve` を固定指示で呼びます。  
 3.1 Flash-Lite / 3.5 Flash-Lite 利用時に不自然なスペースが入りやすいことへの対策です。
 
 文字起こしのプロンプトにも、`LITE_OUTPUT_CORRECTION`（不自然なスペース除去・句読点補完の指示）が組み込まれています（§3 参照）。  
@@ -284,10 +284,10 @@ TASK: {base_instruction}
 
 | 項目 | ファイル | シンボル / 箇所 |
 |------|----------|-----------------|
-| Verbatim / Rephrase / Filler / Lite | `app/app.py` | `VERBATIM_INSTRUCTION`, `REPHRASE_AWARE_INSTRUCTION`, `FILLER_REMOVAL_RULE`, `LITE_OUTPUT_CORRECTION` |
-| 組み立て | `app/app.py` | `build_transcription_prompt` |
-| 履歴 / 単語コンテキスト | `app/app.py` | `get_active_history_context`, `get_word_list_context` |
-| 文字起こし | `app/app.py` | `transcribe`, `upload_complete` |
-| 再分析 | `app/app.py` | `reanalyze` |
-| 改善 | `app/app.py` | `improve` |
-| 間隔修正指示 | `app/templates/index.html` | `fixInstruction`（`btnFixSpacing` ハンドラ） |
+| Verbatim / Rephrase / Filler / Lite | `app/prompts.py` | `VERBATIM_INSTRUCTION`, `REPHRASE_AWARE_INSTRUCTION`, `FILLER_REMOVAL_RULE`, `LITE_OUTPUT_CORRECTION` |
+| 組み立て | `app/prompts.py` | `build_transcription_prompt` |
+| 履歴 / 単語コンテキスト | `app/app.py`（ハブ） | `get_active_history_context`, `get_word_list_context` |
+| 文字起こし | `app/routes_transcribe.py` / `app/routes_files.py` | `transcribe`, `upload_complete` |
+| 再分析 | `app/routes_transcribe.py` | `reanalyze` |
+| 改善 | `app/routes_transcribe.py` | `improve` |
+| 間隔修正指示 | `app/static/js/index/actions.js` | `fixInstruction`（`btnFixSpacing` ハンドラ） |

@@ -34,11 +34,11 @@ Web 版（`app/`）と同じ画面・機能・文言を持つネイティブ And
 
 | パス | 役割 | Web 版の対応箇所 |
 |---|---|---|
-| `ai/Prompts.kt` | プロンプト定数 | `app.py` の `VERBATIM_INSTRUCTION` 等 |
+| `ai/Prompts.kt` | プロンプト定数 | `app/prompts.py` の `VERBATIM_INSTRUCTION` 等 |
 | `ai/Models.kt` | モデル・推論レベル一覧、サイズ上限 | `ALLOWED_MODELS` 等 |
-| `ai/AiRunner.kt` | 文字起こし / 再分析 / 改善 / 言い直し修正、履歴コンテキスト、単語置換、履歴保存 | `app.py` の各ルートとバックグラウンド処理 |
+| `ai/AiRunner.kt` | 文字起こし / 再分析 / 改善 / 言い直し修正、履歴コンテキスト、単語置換、履歴保存 | `app/routes_*.py` の各ルートと `app/streaming.py`・`app/processors*.py` |
 | `ai/GeminiClient.kt`・`ai/SttClients.kt` | Gemini（SSE）・xAI STT・OpenAI（SSE / JSON / Realtime WebSocket、Whisper 対応） | `process_*_background` |
-| `audio/` | マイク検出・録音・モノラル統合・正規化・エンコード | `index.html` の録音処理 |
+| `audio/` | マイク検出・録音・モノラル統合・正規化・エンコード | `static/js/index/`（`audio-dsp.js` `mic.js` `capture.js` `recording.js`）の録音処理 |
 | `data/` | SQLite（履歴・単語セット）・設定・暗号化キー・音声保存 | MariaDB / `uploads/` / localStorage |
 | `task/` | フォアグラウンドサービス、保持時間による自動削除 | Redis タスク / `cleanup_old_data` |
-| `ui/` | 画面（Welcome / ワークスペース / 設定）、9 テーマ | `templates/`・`static/css/style.css` |
+| `ui/` | 画面（Welcome / ワークスペース / 設定）、9 テーマ | `templates/`・`static/js/index/`・`static/css/*.css`（ワークスペースは [ui/workspace/README.md](app/src/main/java/com/minashin1120/voxcribe/ui/workspace/README.md)） |
