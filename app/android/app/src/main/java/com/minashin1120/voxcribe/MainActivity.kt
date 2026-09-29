@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.minashin1120.voxcribe.ui.AppRoot
+import com.minashin1120.voxcribe.ui.workspace.prepareMic
 import java.io.File
 
 class MainActivity : ComponentActivity() {
