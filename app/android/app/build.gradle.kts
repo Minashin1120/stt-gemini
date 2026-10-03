@@ -23,7 +23,7 @@ android {
     defaultConfig {
         applicationId = "com.minashin1120.voxcribe"
         minSdk = 29
-        targetSdk = 36
+        targetSdk = 37
         versionCode = buildVersionCode
         versionName = releaseVersionName ?: "0.0.$ciRunNumber-debug"
     }
