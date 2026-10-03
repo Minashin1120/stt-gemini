@@ -62,11 +62,13 @@ class MainActivity : ComponentActivity() {
         startInstall(file)
     }
 
+    /** ACTION_VIEW ではなくパッケージインストールとして明示的に起動する（起動中のアプリから実行する想定で NEW_TASK は付けない） */
+    @Suppress("DEPRECATION")
     private fun startInstall(file: File) {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
+        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(intent)
     }
