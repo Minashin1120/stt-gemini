@@ -105,6 +105,8 @@ object GeminiClient {
                     .put("generationConfig", JSONObject().put("responseModalities", org.json.JSONArray().put("TEXT"))
                         .put("inputAudioTranscription", JSONObject()))).toString())
             }
+            // Gemini Live はJSONをバイナリフレームで送ってくるため、テキスト/バイナリ両方を同じ処理へ渡す
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) = onMessage(webSocket, bytes.utf8())
             override fun onMessage(webSocket: WebSocket, message: String) {
                 try {
                     val event = JSONObject(message)
@@ -124,7 +126,7 @@ object GeminiClient {
                     if (delta.isNotEmpty()) { text.append(delta); onStatus(TaskPhase.TRANSCRIBING); onText(delta) }
                     if (server?.optBoolean("turnComplete", false) == true) { done.countDown(); webSocket.close(1000, null) }
                     event.optJSONObject("error")?.let { error = it.optString("message"); ready.countDown(); done.countDown() }
-                } catch (_: Exception) { }
+                } catch (e: Exception) { error = e.message ?: "Gemini Live API応答エラー"; ready.countDown(); done.countDown() }
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 error = t.message ?: "Gemini Live API接続エラー"; ready.countDown(); done.countDown()
