@@ -10,22 +10,22 @@ object Models {
     const val FALLBACK = "gemini-3.5-flash"
 
     val ALL = listOf(
-        ModelOption("gemini-3.6-flash", "3.6 Flash"),
-        ModelOption("gemini-3.5-flash", "3.5 Flash"),
-        ModelOption("gemini-3.5-flash-lite", "3.5 Flash-Lite"),
-        ModelOption("gemini-3-flash-preview", "3.0 Flash"),
-        ModelOption("gemini-3.1-flash-lite", "3.1 Flash-Lite"),
-        ModelOption("gemini-3.5-transcribe", "Gemini Transcribe"),
-        ModelOption("gemini-3.5-transcribe-live", "Gemini Live Transcribe"),
-        ModelOption("grok-stt", "Grok STT"),
-        ModelOption("grok-live-transcribe", "Grok Live"),
-        ModelOption("gpt-transcribe", "GPT-Trans."),
-        ModelOption("gpt-live-transcribe", "GPT-Live"),
-        ModelOption("whisper-1", "Whisper"),
+        ModelOption("gemini-3.6-flash", "Gemini 3.6 Flash"),
+        ModelOption("gemini-3.5-flash", "Gemini 3.5 Flash"),
+        ModelOption("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
+        ModelOption("gemini-3-flash-preview", "Gemini 3 Flash Preview"),
+        ModelOption("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite"),
+        ModelOption("gemini-3.5-transcribe", "Gemini 3.5 Transcribe"),
+        ModelOption("gemini-3.5-transcribe-live", "Gemini 3.5 Transcribe Live"),
+        ModelOption("grok-stt", "Grok STT (xAI)"),
+        ModelOption("grok-live-transcribe", "Grok Live Transcribe (xAI)"),
+        ModelOption("gpt-transcribe", "GPT-Transcribe"),
+        ModelOption("gpt-live-transcribe", "GPT-Live Transcribe"),
+        ModelOption("whisper-1", "Whisper-1"),
         ModelOption("gpt-4o-transcribe", "GPT-4o Transcribe"),
         ModelOption("gpt-4o-mini-transcribe", "GPT-4o Mini Transcribe"),
-        ModelOption("gpt-4o-transcribe-diarize", "GPT-4o Speaker Transcribe"),
-        ModelOption("gpt-realtime-whisper", "GPT-Realtime-Whisper"),
+        ModelOption("gpt-4o-transcribe-diarize", "GPT-4o Transcribe Diarize"),
+        ModelOption("gpt-realtime-whisper", "GPT Realtime Whisper"),
     )
 
     val GEMINI = ALL.filter { it.value.startsWith("gemini") }

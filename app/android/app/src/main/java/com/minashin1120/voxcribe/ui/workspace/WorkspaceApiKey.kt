@@ -53,8 +53,8 @@ fun WorkspaceController.akShowSwitch() {
     val p = apiKeyPrompt ?: return
     val models = mutableListOf<Pair<String, String>>()
     if (app.secrets.has(KeyType.GEMINI)) models += Models.GEMINI.map { it.value to it.label }
-    if (app.secrets.has(KeyType.OPENAI)) models += listOf("gpt-transcribe" to "GPT-Transcribe", "gpt-live-transcribe" to "GPT-Live Transcribe", "whisper-1" to "Whisper", "gpt-4o-transcribe" to "GPT-4o Transcribe", "gpt-4o-mini-transcribe" to "GPT-4o Mini Transcribe", "gpt-4o-transcribe-diarize" to "GPT-4o Speaker Transcribe", "gpt-realtime-whisper" to "GPT-Realtime-Whisper")
-    if (app.secrets.has(KeyType.XAI)) models += listOf("grok-stt" to "Grok STT", "grok-live-transcribe" to "Grok Live")
+    if (app.secrets.has(KeyType.OPENAI)) models += listOf("gpt-transcribe" to "GPT-Transcribe", "gpt-live-transcribe" to "GPT-Live Transcribe", "whisper-1" to "Whisper-1", "gpt-4o-transcribe" to "GPT-4o Transcribe", "gpt-4o-mini-transcribe" to "GPT-4o Mini Transcribe", "gpt-4o-transcribe-diarize" to "GPT-4o Transcribe Diarize", "gpt-realtime-whisper" to "GPT Realtime Whisper")
+    if (app.secrets.has(KeyType.XAI)) models += listOf("grok-stt" to "Grok STT (xAI)", "grok-live-transcribe" to "Grok Live Transcribe (xAI)")
     apiKeyPrompt = p.copy(view = AkView.SWITCH, switchModels = models)
 }
 
