@@ -71,6 +71,15 @@ fun WorkspaceController.uploadFile(append: Boolean) {
             status = StatusView("待機中")
             return@launch
         }
+        if (isBatchFor(useModel)) {
+            val batchMime = AudioStore.MIME_BY_EXT[AudioStore.extOf(sel.name)]
+            if (batchMime == null) {
+                toast.show("対応していない音声形式です", true)
+                return@launch
+            }
+            submitBatchUpload(sel, batchMime, useModel)
+            return@launch
+        }
         isAppendMode = append
         if (!append) clearResultUiForNew()
         uploadUiActive = true

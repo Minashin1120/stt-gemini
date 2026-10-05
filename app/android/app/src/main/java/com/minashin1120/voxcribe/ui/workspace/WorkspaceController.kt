@@ -16,6 +16,7 @@ import com.minashin1120.voxcribe.ai.Models
 import com.minashin1120.voxcribe.audio.MicInfo
 import com.minashin1120.voxcribe.audio.MicSettings
 import com.minashin1120.voxcribe.audio.NativeRecorder
+import com.minashin1120.voxcribe.data.BatchRow
 import com.minashin1120.voxcribe.data.HistoryRow
 import com.minashin1120.voxcribe.data.SavedAudio
 import com.minashin1120.voxcribe.data.SecretStore.KeyType
@@ -147,6 +148,15 @@ class WorkspaceController(internal val app: VoxcribeApp) {
     val wordSets = mutableStateListOf<WordSetRow>()
     val manageWords = mutableStateListOf<WordRow>()
 
+    // Batch（Gemini Batch API）。ロジックは WorkspaceBatch.kt
+    var batchMode by mutableStateOf(prefs.getString("stt_batch") == "true")
+        internal set
+    val batches = mutableStateListOf<BatchRow>()
+    var batchDonePrompt by mutableStateOf<BatchRow?>(null)
+        internal set
+    internal val batchDoneQueue = ArrayDeque<BatchRow>()
+    internal var batchPollJob: Job? = null
+
     // ダイアログ
     var deleteModalOpen by mutableStateOf(false)
     var micErrorMessage by mutableStateOf<String?>(null)
@@ -182,6 +192,7 @@ class WorkspaceController(internal val app: VoxcribeApp) {
             started = true
             loadHistory()
             loadWordSetStatus()
+            startBatchPolling()
         } else {
             loadHistory()
         }

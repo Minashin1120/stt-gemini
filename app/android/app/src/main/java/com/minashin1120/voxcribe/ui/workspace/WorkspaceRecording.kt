@@ -344,6 +344,10 @@ internal suspend fun WorkspaceController.upl(blob: File, name: String) {
     }
     rememberLocalAudio(blob, name)
     errorDownloadVisible = false
+    if (isBatchFor(useModel)) {
+        submitBatchRecording(blob, name, useModel)
+        return
+    }
     if (!isAppendMode) clearResultUiForNew()
     status = StatusView("アップロード中...")
     val stored = withContext(Dispatchers.IO) {

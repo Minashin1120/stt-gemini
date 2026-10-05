@@ -218,6 +218,9 @@ private fun InputCard(ctrl: WorkspaceController) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally), modifier = Modifier.fillMaxWidth()) {
                 SwitchRow("言い直し修正許可", ctrl.rephrase, { ctrl.setRephraseOn(it) })
                 SwitchRow("フィラー除去", ctrl.filler, { ctrl.setFillerOn(it) })
+                if (Models.supportsBatch(ctrl.model)) {
+                    SwitchRow("Batchで実行（50%割引・後で取り込み）", ctrl.batchMode, { ctrl.setBatchModeOn(it) })
+                }
             }
             Spacer(Modifier.height(16.dp))
             Divider()

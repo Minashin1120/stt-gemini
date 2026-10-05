@@ -26,6 +26,7 @@ Web 版の対応先は `app/static/js/index/*.js`（[README](../../../../../../.
 | `WorkspaceUpload.kt` | ファイル選択、アップロード、アップロード進捗 UI | `settings.js`（`handleFileSelect`）`stream.js` |
 | `WorkspaceTask.kt` | AI 処理の実行（`startTask`）、結果のストリーム表示、中断 | `stream.js`（`handleStreamResponse`） |
 | `WorkspacePostprocess.kt` | 再分析・改善・間隔修正・言い直し修正、コピー、音声削除、一括削除 | `actions.js` |
+| `WorkspaceBatch.kt` | Batch（Gemini Batch API）の投入・一覧・60秒ポーリング・完了ダイアログ・取り込み・取消・削除。状態（`batchMode` `batches` `batchDonePrompt`）は `WorkspaceController.kt`。アップロード/録音/再分析/改善の各入口が `isBatchFor(model)` で分岐する | `batch.js` |
 | `WorkspaceFiles.kt` | 履歴、保存データ（ファイルマネージャ）、エラー時のローカル音声ダウンロード | `history.js` `transfer.js` |
 | `WorkspaceWordSets.kt` | 単語セットの有効化・管理・読み仮名生成 | `wordsets.js` |
 | `WorkspaceApiKey.kt` | API キー未設定モーダルの制御（`ensureApiKeyForModel`）、全データ削除 | `apikey.js` |

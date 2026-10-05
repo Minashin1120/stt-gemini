@@ -51,6 +51,9 @@ object Models {
 
     fun isGeminiStt(model: String) = model == "gemini-3.5-transcribe" || model == "gemini-3.5-transcribe-live"
 
+    /** 公式 Batch API（generateContent 系）があるのは Gemini 通常モデルのみ。Transcribe(Interactions)・Live・OpenAI・Grok は対象外 */
+    fun supportsBatch(model: String) = model.startsWith("gemini") && !isStt(model)
+
     fun isStt(model: String) = isGrok(model) || isOpenAi(model) || isGeminiStt(model)
 
     fun keyType(model: String): KeyType = when {

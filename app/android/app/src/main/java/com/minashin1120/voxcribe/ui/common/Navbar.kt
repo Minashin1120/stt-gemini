@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -92,6 +93,7 @@ fun AppNavbar(current: String, onNavigate: (String) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 NavLink(Icons.Outlined.Dashboard, "ワークスペース", current == "workspace") { open = false; onNavigate("workspace") }
+                NavLink(Icons.Outlined.HourglassTop, "Batch", current == "batch") { open = false; onNavigate("batch") }
                 NavLink(Icons.Outlined.Tune, "設定", current == "settings") { open = false; onNavigate("settings") }
             }
         }

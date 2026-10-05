@@ -20,6 +20,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import com.minashin1120.voxcribe.VoxcribeApp
+import com.minashin1120.voxcribe.ui.batch.BatchDoneModal
+import com.minashin1120.voxcribe.ui.batch.BatchScreen
 import com.minashin1120.voxcribe.ui.common.ConfirmDialog
 import com.minashin1120.voxcribe.ui.common.ToastHost
 import com.minashin1120.voxcribe.ui.settings.SettingsScreen
@@ -59,7 +61,7 @@ fun AppRoot(onRequestPermissions: () -> Unit, onInstallUpdate: (File) -> Unit) {
         }) {
             androidx.compose.material3.ProvideTextStyle(TextStyle(fontFamily = theme.font, color = theme.text)) {
                 Box(Modifier.fillMaxSize()) {
-                    BackHandler(enabled = screen == "settings") { screen = "workspace" }
+                    BackHandler(enabled = screen == "settings" || screen == "batch") { screen = "workspace" }
                     AnimatedContent(screen, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { s ->
                         when (s) {
                             "welcome" -> WelcomeScreen(onStart = {
@@ -67,10 +69,12 @@ fun AppRoot(onRequestPermissions: () -> Unit, onInstallUpdate: (File) -> Unit) {
                                 screen = "workspace"
                             })
                             "settings" -> SettingsScreen(onNavigate = { screen = it })
+                            "batch" -> BatchScreen(onNavigate = { screen = it })
                             else -> WorkspaceScreen(onNavigate = { screen = it })
                         }
                     }
                     app.workspace.confirm?.let { req -> ConfirmDialog(req) { app.workspace.confirm = null } }
+                    app.workspace.batchDonePrompt?.let { job -> BatchDoneModal(job, app.workspace) }
                     UpdateDialog(onInstall = onInstallUpdate)
                     ToastHost(app.toaster)
                 }

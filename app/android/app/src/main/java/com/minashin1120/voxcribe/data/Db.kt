@@ -14,6 +14,22 @@ data class HistoryRow(
     val timestampMs: Long,
 )
 
+/** Gemini Batch API ジョブ（Web版 BatchJob テーブルに相当）。status: running / succeeded / failed / cancelled / expired */
+data class BatchRow(
+    val id: Long,
+    val providerJob: String,
+    val model: String,
+    val actionType: String,
+    val inputSummary: String,
+    val status: String,
+    val thoughtText: String,
+    val resultText: String,
+    val error: String,
+    val imported: Boolean,
+    val createdMs: Long,
+    val completedMs: Long,
+)
+
 data class WordSetRow(val id: Long, val name: String, val isActive: Boolean)
 
 data class WordRow(val id: Long, val setId: Long, val reading: String, val replacement: String)
@@ -21,13 +37,32 @@ data class WordRow(val id: Long, val setId: Long, val reading: String, val repla
 /**
  * Web版の MariaDB（History / WordSet / Word テーブル）に相当する端末内DB。
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "voxcribe.db", null, 1) {
+class Db(context: Context) : SQLiteOpenHelper(context, "voxcribe.db", null, 2) {
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.setForeignKeyConstraintsEnabled(true)
     }
 
+    private fun createBatchTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS batch_job (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_job TEXT NOT NULL,
+                model TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                input_summary TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'running',
+                thought_text TEXT NOT NULL DEFAULT '',
+                result_text TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                imported INTEGER NOT NULL DEFAULT 0,
+                created INTEGER NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0)"""
+        )
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
+        createBatchTable(db)
         db.execSQL(
             """CREATE TABLE history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +87,9 @@ class Db(context: Context) : SQLiteOpenHelper(context, "voxcribe.db", null, 1) {
         )
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createBatchTable(db)
+    }
 
     // ---------- History ----------
 
@@ -111,6 +148,68 @@ class Db(context: Context) : SQLiteOpenHelper(context, "voxcribe.db", null, 1) {
                     thoughtText = c.getString(c.getColumnIndexOrThrow("thought_text")),
                     resultText = c.getString(c.getColumnIndexOrThrow("result_text")),
                     timestampMs = c.getLong(c.getColumnIndexOrThrow("timestamp")),
+                )
+            }
+        }
+        return out
+    }
+
+    // ---------- Batch jobs ----------
+
+    @Synchronized
+    fun insertBatch(providerJob: String, model: String, action: String, summary: String): Long =
+        writableDatabase.insert("batch_job", null, ContentValues().apply {
+            put("provider_job", providerJob)
+            put("model", model)
+            put("action_type", action)
+            put("input_summary", summary)
+            put("status", "running")
+            put("created", System.currentTimeMillis())
+        })
+
+    @Synchronized
+    fun batches(): List<BatchRow> = queryBatches("SELECT * FROM batch_job ORDER BY created DESC, id DESC", emptyArray())
+
+    @Synchronized
+    fun batch(id: Long): BatchRow? = queryBatches("SELECT * FROM batch_job WHERE id = ?", arrayOf(id.toString())).firstOrNull()
+
+    @Synchronized
+    fun finishBatch(id: Long, status: String, thought: String, result: String, error: String) {
+        writableDatabase.update("batch_job", ContentValues().apply {
+            put("status", status)
+            put("thought_text", thought)
+            put("result_text", result)
+            put("error", error)
+            put("completed", System.currentTimeMillis())
+        }, "id = ?", arrayOf(id.toString()))
+    }
+
+    @Synchronized
+    fun markBatchImported(id: Long) {
+        writableDatabase.update("batch_job", ContentValues().apply { put("imported", 1) }, "id = ?", arrayOf(id.toString()))
+    }
+
+    @Synchronized
+    fun deleteBatch(id: Long): Boolean =
+        writableDatabase.delete("batch_job", "id = ?", arrayOf(id.toString())) > 0
+
+    private fun queryBatches(sql: String, args: Array<String>): List<BatchRow> {
+        val out = ArrayList<BatchRow>()
+        readableDatabase.rawQuery(sql, args).use { c ->
+            while (c.moveToNext()) {
+                out += BatchRow(
+                    id = c.getLong(c.getColumnIndexOrThrow("id")),
+                    providerJob = c.getString(c.getColumnIndexOrThrow("provider_job")),
+                    model = c.getString(c.getColumnIndexOrThrow("model")),
+                    actionType = c.getString(c.getColumnIndexOrThrow("action_type")),
+                    inputSummary = c.getString(c.getColumnIndexOrThrow("input_summary")),
+                    status = c.getString(c.getColumnIndexOrThrow("status")),
+                    thoughtText = c.getString(c.getColumnIndexOrThrow("thought_text")),
+                    resultText = c.getString(c.getColumnIndexOrThrow("result_text")),
+                    error = c.getString(c.getColumnIndexOrThrow("error")),
+                    imported = c.getInt(c.getColumnIndexOrThrow("imported")) != 0,
+                    createdMs = c.getLong(c.getColumnIndexOrThrow("created")),
+                    completedMs = c.getLong(c.getColumnIndexOrThrow("completed")),
                 )
             }
         }
@@ -210,5 +309,6 @@ class Db(context: Context) : SQLiteOpenHelper(context, "voxcribe.db", null, 1) {
         writableDatabase.delete("word", null, null)
         writableDatabase.delete("word_set", null, null)
         writableDatabase.delete("history", null, null)
+        writableDatabase.delete("batch_job", null, null)
     }
 }

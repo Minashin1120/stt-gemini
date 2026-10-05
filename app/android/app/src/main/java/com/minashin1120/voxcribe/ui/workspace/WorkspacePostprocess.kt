@@ -17,6 +17,10 @@ fun WorkspaceController.reanalyze() {
     scope.launch {
         val (proceed, useModel) = ensureApiKeyForModel(model, false, null, null)
         if (!proceed) return@launch
+        if (isBatchFor(useModel)) {
+            submitBatchReanalyze(useModel)
+            return@launch
+        }
         status = StatusView("再分析中...")
         isAppendMode = false
         startTask(AiRequest.Reanalyze(useModel, thinking, rephrase, filler), BeginOn.RESPONSE)
@@ -28,6 +32,15 @@ fun WorkspaceController.improve() {
     val i = instruction
     if (t.isEmpty() || i.isEmpty()) {
         toast.show("入力してください", true)
+        return
+    }
+    if (isBatchFor(model)) {
+        improveEnabled = false
+        scope.launch {
+            val ok = submitBatchImprove(t, i, model)
+            improveEnabled = true
+            if (ok) instruction = ""
+        }
         return
     }
     status = StatusView("改善中...")

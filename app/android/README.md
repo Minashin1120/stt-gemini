@@ -37,8 +37,9 @@ Web 版（`app/`）と同じ画面・機能・文言を持つネイティブ And
 | `ai/Prompts.kt` | プロンプト定数 | `app/prompts.py` の `VERBATIM_INSTRUCTION` 等 |
 | `ai/Models.kt` | モデル・推論レベル一覧、サイズ上限 | `ALLOWED_MODELS` 等 |
 | `ai/AiRunner.kt` | 文字起こし / 再分析 / 改善 / 言い直し修正、履歴コンテキスト、単語置換、履歴保存 | `app/routes_*.py` の各ルートと `app/streaming.py`・`app/processors*.py` |
+| `ai/BatchClient.kt`・`ai/BatchRunner.kt` | Gemini Batch API（Files upload → `batchGenerateContent` → ポーリング → 結果JSONL）。公式Batchがあるのは Gemini 通常モデルのみ（`Models.supportsBatch`）。取り込みは履歴へ追加のみ | `app/batch.py`・`app/routes_batch.py` |
 | `ai/GeminiClient.kt`・`ai/SttClients.kt` | Gemini（SSE）・xAI STT・OpenAI（SSE / JSON / Realtime WebSocket、Whisper 対応） | `process_*_background` |
 | `audio/` | マイク検出・録音・モノラル統合・正規化・エンコード | `static/js/index/`（`audio-dsp.js` `mic.js` `capture.js` `recording.js`）の録音処理 |
 | `data/` | SQLite（履歴・単語セット）・設定・暗号化キー・音声保存 | MariaDB / `uploads/` / localStorage |
-| `task/` | フォアグラウンドサービス、保持時間による自動削除 | Redis タスク / `cleanup_old_data` |
-| `ui/` | 画面（Welcome / ワークスペース / 設定）、9 テーマ | `templates/`・`static/js/index/`・`static/css/*.css`（ワークスペースは [ui/workspace/README.md](app/src/main/java/com/minashin1120/voxcribe/ui/workspace/README.md)） |
+| `task/` | フォアグラウンドサービス、保持時間による自動削除、Batch完了通知（`BatchWork`: WorkManager 15分周期、進行中ジョブがある間のみ） | Redis タスク / `cleanup_old_data` |
+| `ui/` | 画面（Welcome / ワークスペース / Batch / 設定）、9 テーマ | `templates/`・`static/js/index/`・`static/css/*.css`（ワークスペースは [ui/workspace/README.md](app/src/main/java/com/minashin1120/voxcribe/ui/workspace/README.md)） |
