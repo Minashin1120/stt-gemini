@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Batch処理 | Voxcribe{% endblock %}
+{% block content %}
+<div class="settings-heading">
+    <span class="eyebrow">Batch</span>
+    <h1>Batch処理</h1>
+    <p>Gemini Batch API（通常料金の50%・最大24時間）に投入したジョブの一覧です。完了したジョブは取り込みで履歴と結果欄に反映できます。</p>
+</div>
+<div class="card settings-card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center fw-bold">
+        <span><i class="bi bi-hourglass-split me-2"></i>ジョブ一覧</span>
+        <button id="batchRefresh" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-clockwise"></i> 更新</button>
+    </div>
+    <div class="card-body p-0"><div id="batchListContainer" class="list-group list-group-flush"><div class="text-center text-muted small py-4">読み込み中...</div></div></div>
+</div>
+<div class="small text-muted mb-5">対応モデル: Gemini 3.6 Flash / 3.5 Flash / 3.5 Flash-Lite / 3 Flash Preview / 3.1 Flash-Lite。Transcribe・Live・OpenAI・Grok には公式のBatch APIがないため対象外です。ワークスペースでGeminiモデルを選び「Batchで実行」をオンにすると投入できます。</div>
+{% include "partials/_batch_done_modal.html" %}
+<script src="{{ static_v('js/index/common.js') }}"></script>
+<script src="{{ static_v('js/index/batch.js') }}"></script>
+{% endblock %}

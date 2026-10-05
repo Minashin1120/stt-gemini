@@ -100,6 +100,7 @@
                     <div class="navbar-nav ms-auto align-items-lg-center">
                         {% if current_user.is_authenticated %}
                             <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/"><i class="bi bi-grid-1x2"></i><span>ワークスペース</span></a>
+                            <a class="nav-link {% if request.path == '/batch' %}active{% endif %}" href="/batch"><i class="bi bi-hourglass-split"></i><span>Batch</span></a>
                             <a class="nav-link {% if request.path == '/settings' %}active{% endif %}" href="/settings"><i class="bi bi-sliders"></i><span>設定</span></a>
                             <form method="POST" action="/logout" class="d-inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

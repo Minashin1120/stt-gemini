@@ -8,4 +8,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initStream();
     initRecording();
     initActions();
+    initBatch();
 });

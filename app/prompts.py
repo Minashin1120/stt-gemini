@@ -60,3 +60,37 @@ def build_transcription_prompt(history_context, word_list_context, mode_label, a
     else:
         prompt += f"TASK: {base_instruction}"
     return prompt
+
+
+def build_reanalyze_prompt(history_context, word_list_context, allow_rephrase_correction=False, allow_filler_removal=False, is_lite_model=False):
+    if allow_rephrase_correction:
+        base_instruction = REPHRASE_AWARE_INSTRUCTION
+        mode_line = "MODE: The user enabled rephrase correction mode for this re-analysis."
+    else:
+        base_instruction = "Listen again carefully and transcribe exactly.\nDo NOT insert line breaks in the middle of a sentence, even if there is a pause in the speech."
+        mode_line = ""
+    if allow_filler_removal:
+        base_instruction += FILLER_REMOVAL_RULE
+    if is_lite_model:
+        base_instruction += LITE_OUTPUT_CORRECTION
+    prompt_parts = [history_context, word_list_context]
+    if mode_line:
+        prompt_parts.append(mode_line)
+    prompt_parts.append("TASK: " + base_instruction)
+    return "\n".join(prompt_parts)
+
+
+def build_improve_prompt(history_context, word_list_context, text, instruction):
+    # プロンプトを強化して手動修正を重視させる
+    return f"""
+    {history_context}
+    {word_list_context}
+    
+    IMPORTANT: The text in "Current Text" is the result of manual corrections by the user. 
+    You MUST prioritize this "Current Text" as the definitive source for improvement, 
+    even if it differs from the earlier transcription in the history.
+
+    Current Text: {text}
+    User Instruction: {instruction}
+    Task: Refine or transform the "Current Text" according to the "User Instruction". Output ONLY the final improved result.
+    """

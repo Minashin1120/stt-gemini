@@ -10,7 +10,7 @@ import threading
 import app as core
 from app import is_truthy
 from app import GEMINI_STT_MODELS, History, MAX_INSTRUCTION_LENGTH, MAX_TEXT_LENGTH, OPENAI_FILE_STT_MODELS, OPENAI_STT_MODELS, app, apply_word_replacements, check_user_model_rate_limit, db, get_active_history_context, get_thinking_level, get_word_list_context, is_plausible_xai_api_key, reject_if_active_task, resolve_user_upload_path, save_uploaded_audio_file, validate_model
-from prompts import FILLER_REMOVAL_RULE, LITE_OUTPUT_CORRECTION, REPHRASE_AWARE_INSTRUCTION, TEXT_REPHRASE_CORRECTION_PROMPT, build_transcription_prompt
+from prompts import TEXT_REPHRASE_CORRECTION_PROMPT, build_improve_prompt, build_reanalyze_prompt, build_transcription_prompt
 from streaming import create_stream_response, process_gemini_background, stream_task_updates
 from processors import process_gemini_live_transcribe_background, process_gemini_transcribe_background, process_grok_stt_background
 from processors_openai import process_openai_gpt_live_transcribe_background, process_openai_gpt_transcribe_background
@@ -200,21 +200,7 @@ def reanalyze():
     allow_rephrase_correction = is_truthy(data.get('allow_rephrase_correction'))
     allow_filler_removal = is_truthy(data.get('allow_filler_removal'))
     is_lite = model in ('gemini-3.5-flash-lite', 'gemini-3.1-flash-lite')
-    if allow_rephrase_correction:
-        base_instruction = REPHRASE_AWARE_INSTRUCTION
-        mode_line = "MODE: The user enabled rephrase correction mode for this re-analysis."
-    else:
-        base_instruction = "Listen again carefully and transcribe exactly.\nDo NOT insert line breaks in the middle of a sentence, even if there is a pause in the speech."
-        mode_line = ""
-    if allow_filler_removal:
-        base_instruction += FILLER_REMOVAL_RULE
-    if is_lite:
-        base_instruction += LITE_OUTPUT_CORRECTION
-    prompt_parts = [history_context, word_list_context]
-    if mode_line:
-        prompt_parts.append(mode_line)
-    prompt_parts.append("TASK: " + base_instruction)
-    prompt = "\n".join(prompt_parts)
+    prompt = build_reanalyze_prompt(history_context, word_list_context, allow_rephrase_correction, allow_filler_removal, is_lite)
     
     payload = {
         "contents": [{"parts": [
@@ -259,19 +245,7 @@ def improve():
     word_list_context = get_word_list_context(current_user.id)
     
     parts = []
-    # プロンプトを強化して手動修正を重視させる
-    prompt = f"""
-    {history_context}
-    {word_list_context}
-    
-    IMPORTANT: The text in "Current Text" is the result of manual corrections by the user. 
-    You MUST prioritize this "Current Text" as the definitive source for improvement, 
-    even if it differs from the earlier transcription in the history.
-
-    Current Text: {text}
-    User Instruction: {instruction}
-    Task: Refine or transform the "Current Text" according to the "User Instruction". Output ONLY the final improved result.
-    """
+    prompt = build_improve_prompt(history_context, word_list_context, text, instruction)
     parts.append({"text": prompt})
 
     if use_audio:

@@ -170,6 +170,16 @@ async function cancelActiveServerTask() {
 
 async function uploadFile(append = false) {
     if (!selectedFile) return;
+    if (isBatchMode(getModel())) {
+        const result = await ensureApiKeyForModel(getModel(), false);
+        if (!result.proceed) { el.stat.innerText = "待機中"; return; }
+        el.stat.innerText = "Batchに投入中...";
+        btnUploadNew.disabled = btnUploadAppend.disabled = true;
+        const ok = await submitBatchJob({ action: 'transcribe', model: result.model }, selectedFile, selectedFile.name);
+        btnUploadNew.disabled = btnUploadAppend.disabled = false;
+        el.stat.innerText = ok ? "Batchに投入しました" : "エラー";
+        return;
+    }
     if (selectedFile.size > CHUNK_THRESHOLD) {
         await uploadFileChunked(selectedFile, append);
     } else {

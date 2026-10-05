@@ -37,9 +37,10 @@
 | 13 | `grok-live.js` | Grok Live（WebSocket リアルタイム文字起こし）のクライアント | `startGrokLiveSession` `finishGrokLiveSession` |
 | 14 | `recording.js` | 録音の開始・一時停止・停止のハンドラ | `rec` `initRecording` |
 | 15 | `actions.js` | 録音データの送信（`upl` / `finalizeLiveGrok`）、再分析・AI 改善・間隔修正・言い直し修正・削除・コピーのボタン | `upl` `finalizeLiveGrok` `syncPostprocessButtons` |
-| 16 | `main.js` | `DOMContentLoaded` で各 `initXxx()` を元の実行順どおりに呼ぶ | — |
+| 16 | `batch.js` | Batch（Gemini Batch API）: 「Batchで実行」トグル、投入 `submitBatchJob`、60 秒ポーリング、完了時の取り込み確認ダイアログ、`/batch` 画面の一覧描画。**`batch.html` でも読み込む**ため、`el` など index 専用グローバルは `typeof` で存在確認して使う | `isBatchMode` `submitBatchJob` `importBatchJob` `initBatch` |
+| 17 | `main.js` | `DOMContentLoaded` で各 `initXxx()` を元の実行順どおりに呼ぶ | — |
 
-`initXxx()` を持つのは `ui-mic` `transfer` `settings` `history` `stream` `recording` `actions` です。呼び出し順は
+`initXxx()` を持つのは `ui-mic` `transfer` `settings` `history` `stream` `recording` `actions` `batch` です。呼び出し順は
 `main.js` に書かれており、**イベント登録の順序**に依存する処理があるため入れ替えないでください
 （例: `settings.js` の初期化は `el` を必要とするので `initUiMic()` の後）。
 
@@ -56,6 +57,7 @@
 | SSE の表示・思考/結果の分離 | `stream.js` |
 | 大容量アップロード | `stream.js`（`uploadFileChunked`）と `transfer.js` |
 | 単語セット UI | `wordsets.js`（サーバー側 HTML は `templates/partials/_word_sets.html`） |
+| Batch 投入・取り込み・一覧 | `batch.js`（サーバー側は `app/batch.py` `app/routes_batch.py`） |
 | 「間隔修正」の固定指示 | `actions.js`（`fixInstruction`、全文は [docs/PROMPTS.md](../../../../docs/PROMPTS.md)） |
 
 ## ファイルを増やす / 肥大したとき

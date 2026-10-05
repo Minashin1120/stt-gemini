@@ -17,6 +17,8 @@ Jinja2 + Bootstrap 5.3 + Vanilla JavaScript です。ビルドツールは使い
 | `request_unlock.html` | アカウントロック解除申請 |
 | `settings.html` | Gemini / xAI API キー、保持時間、テーマ保存 |
 | `index.html` | **メイン画面のマークアップとモーダル**（約 400 行）。ロジックは `../static/js/index/*.js` |
+| `batch.html` | Batch ジョブ一覧画面（`/batch`、ナビバーの「Batch」）。ロジックは `../static/js/index/batch.js` |
+| `partials/_batch_done_modal.html` | Batch 完了時の「取り込む / 後で」ダイアログ（`index.html` と `batch.html` が include） |
 | `partials/_word_sets.html` | 単語セット管理 UI の部分テンプレート |
 | `partials/_styles.html` | 自前 CSS の `<link>` 一覧（**並び順 = カスケード順**）。`base.html` と `welcome.html` が include |
 

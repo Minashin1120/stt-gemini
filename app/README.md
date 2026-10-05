@@ -40,10 +40,12 @@ Flask アプリケーション本体です。共有オブジェクトとフッ�
 | `routes_grok_live.py` | Grok Live（WebSocket） | `ws_grok_live` |
 | `routes_files.py` | ファイル・履歴 API、チャンクアップロード | `/api/upload_chunk`, `/api/upload_complete`, `/api/files`, `/api/history` |
 | `routes_tasks.py` | タスク一覧・キャンセル・SSE 再接続 | `/api/tasks`, `/api/task_stream/<id>` |
+| `batch.py` | Gemini Batch API クライアント（Files upload / `batchGenerateContent` / 状態取得 / 結果パース）と `BatchJob` モデル。公式 Batch があるのは Gemini 通常5モデルのみ（`BATCH_MODELS`）。テーブルは import 時に `checkfirst` で作成 | `BatchJob` `create_batch` `refresh_job` `import_job` |
+| `routes_batch.py` | Batch ジョブの投入・一覧・取り込み・取消・削除と `/batch` ページ。完了検知はブラウザ表示中のポーリング（サーバー常駐ワーカー無し） | `/api/batches`, `/api/batches/<id>/import`, `/batch` |
 | `streaming.py` | Gemini 汎用バックグラウンド処理と SSE ジェネレータ | `process_gemini_background` `stream_task_updates` `create_stream_response` |
 | `processors.py` | Gemini 文字起こし / Gemini Live / Grok STT のバックグラウンド処理 | `process_gemini_transcribe_background` `process_grok_stt_background` |
 | `processors_openai.py` | OpenAI（GPT Transcribe / Whisper / Realtime）のバックグラウンド処理 | `process_openai_gpt_transcribe_background` |
-| `prompts.py` | プロンプト定数と組み立て（全文は [../docs/PROMPTS.md](../docs/PROMPTS.md)） | `VERBATIM_INSTRUCTION` `build_transcription_prompt` |
+| `prompts.py` | プロンプト定数と組み立て（全文は [../docs/PROMPTS.md](../docs/PROMPTS.md)） | `VERBATIM_INSTRUCTION` `build_transcription_prompt` `build_reanalyze_prompt` `build_improve_prompt`（通常経路と Batch で共有） |
 
 ### 依存の向きと規約（重要）
 

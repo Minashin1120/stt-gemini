@@ -26,6 +26,7 @@
 </style>
 
 <!-- モーダル類 -->
+{% include "partials/_batch_done_modal.html" %}
 <div class="modal fade" id="deleteModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5>音声破棄</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">音声を削除しますか？<br><small class="text-danger">再分析不可になります。</small></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-danger" id="confirmDeleteBtn">削除</button></div></div></div></div>
 
 <div class="modal fade" id="micProcessingErrorModal" tabindex="-1" aria-labelledby="micProcessingErrorTitle" aria-hidden="true">
@@ -201,6 +202,7 @@
                 <div class="d-flex justify-content-center gap-3 align-items-center mb-3 flex-wrap">
                     <div class="form-check form-switch"><label class="form-check-label"><input class="form-check-input" type="checkbox" id="allowRephraseCorrection"><span class="small ms-1">言い直し修正許可</span></label></div>
                     <div class="form-check form-switch"><label class="form-check-label"><input class="form-check-input" type="checkbox" id="allowFillerRemoval"><span class="small ms-1">フィラー除去</span></label></div>
+                    <div class="form-check form-switch d-none" id="batchModeWrap"><label class="form-check-label" title="Gemini Batch API（50%割引・最大24時間）。完了後に取り込みます"><input class="form-check-input" type="checkbox" id="batchMode"><span class="small ms-1">Batchで実行（50%割引・後で取り込み）</span></label></div>
                 </div>
 
                 <hr class="my-4">
@@ -401,5 +403,6 @@
 <script src="{{ static_v('js/index/grok-live.js') }}"></script>
 <script src="{{ static_v('js/index/recording.js') }}"></script>
 <script src="{{ static_v('js/index/actions.js') }}"></script>
+<script src="{{ static_v('js/index/batch.js') }}"></script>
 <script src="{{ static_v('js/index/main.js') }}"></script>
 {% endblock %}

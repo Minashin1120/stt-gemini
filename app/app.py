@@ -729,6 +729,7 @@ def save_history(user_id, action_type, input_summary, thought, result):
 # 可変名（redis_client / create_task など）を参照する。詳細は app/README.md。
 import prompts, streaming, processors, processors_openai  # noqa: E402,F401
 import routes_auth, routes_words, routes_transcribe, routes_grok_live, routes_files, routes_tasks  # noqa: E402,F401
+import batch, routes_batch  # noqa: E402,F401
 
 if __name__ == '__main__':
     with app.app_context():

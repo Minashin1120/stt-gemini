@@ -7,6 +7,13 @@ async function upl(b,n){
     const useModel = result.model;
     rememberLocalAudio(b, n);
     hideErrorDownloadButton();
+    if (isBatchMode(useModel)) {
+        el.stat.innerText = "Batchに投入中...";
+        const ok = await submitBatchJob({ action: 'transcribe', model: useModel }, b, n);
+        el.stat.innerText = ok ? "Batchに投入しました" : "エラー";
+        if (!ok) showErrorDownloadButton(true);
+        return;
+    }
     // 新規録音の送信時は再確認でテキストをクリア（APIキー入力待ちの間に編集された場合など）
     if (!isAppendMode) clearResultUiForNew();
     el.stat.innerText = "アップロード中...";
@@ -90,6 +97,12 @@ function initActions() {
         if (!result.proceed) { el.stat.innerText = "待機中"; return; }
         const useModel = result.model;
         isAppendMode=false;
+        if (isBatchMode(useModel)) {
+            el.stat.innerText = "Batchに投入中...";
+            const ok = await submitBatchJob({ action: 'reanalyze', model: useModel });
+            el.stat.innerText = ok ? "Batchに投入しました" : "エラー";
+            return;
+        }
         el.stat.innerText="再分析中...";
         abortController = new AbortController();
         try{ const r=await csrfFetch('/reanalyze',{
@@ -102,7 +115,15 @@ function initActions() {
     };
     el.imp.onclick=async()=>{
         const t=el.res.value, i=el.ins.value; if(!t||!i){showToast("入力してください",true);return;}
-        isAppendMode=false; el.stat.innerText="改善中..."; el.imp.disabled=true;
+        isAppendMode=false;
+        if (isBatchMode(getModel())) {
+            el.imp.disabled = true;
+            const ok = await submitBatchJob({ action: 'improve', model: getModel(), text: t, instruction: i, use_audio: el.useAudio.checked ? '1' : '0' });
+            el.imp.disabled = false;
+            if (ok) el.ins.value = "";
+            return;
+        }
+        el.stat.innerText="改善中..."; el.imp.disabled=true;
         abortController = new AbortController();
         try{
             const r=await csrfFetch('/improve',{

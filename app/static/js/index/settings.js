@@ -21,6 +21,7 @@ function setModel(value) {
     const opt = document.querySelector(`#modelSelect .custom-select-option[data-value="${value}"]`);
     if (textEl && opt) textEl.textContent = opt.textContent;
     syncModelDeprecationInfo(value);
+    syncBatchToggle();
     const savedThink = localStorage.getItem('stt_t_' + currentModel);
     if (savedThink) el.think.value = savedThink;
     updatePostprocessBar();
