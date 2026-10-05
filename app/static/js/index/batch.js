@@ -1,7 +1,7 @@
 // Batch 処理（Gemini Batch API）: 「Batchで実行」トグル・投入・完了検知ポーリング・取り込み確認・一覧画面（/batch）。
 // index.html と batch.html の両方で読み込む。`el` などメイン画面専用のグローバルは typeof で存在確認してから使う。
 
-const BATCH_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite'];
+const BATCH_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite'];
 const BATCH_POLL_MS = 60000;
 let batchPollTimer = null;
 let batchDialogQueue = [];

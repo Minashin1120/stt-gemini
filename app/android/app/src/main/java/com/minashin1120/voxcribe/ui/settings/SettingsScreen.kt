@@ -159,7 +159,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
                 KeyStatus("xAI (Grok) ステータス: ", hasXai)
                 KeyStatus("OpenAI ステータス: ", hasOpenai)
                 Spacer(Modifier.height(6.dp))
-                FieldLabel("Gemini API キー (3.5 Flash / 3.0 Flash / 3.1 Flash-Lite)")
+                FieldLabel("Gemini API キー (3.8 / 3.7 / 3.6 Flash など)")
                 FormInput(gemini, { gemini = it.take(512) }, Modifier.fillMaxWidth(), placeholder = if (hasGemini) "変更する場合のみ入力" else "AIzaSy...", password = true)
                 Spacer(Modifier.height(14.dp))
                 FieldLabel("xAI (Grok STT) API キー")

@@ -9,6 +9,8 @@ from app import app, db, logger
 GEMINI_BASE = 'https://generativelanguage.googleapis.com'
 # generateContent 系の通常モデルのみ Batch API 対象（Transcribe(Interactions)・Live・OpenAI・Grok は対象外）
 BATCH_MODELS = {
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash',
     'gemini-3.5-flash-lite',

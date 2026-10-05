@@ -106,6 +106,8 @@ import redis as redis_module
 redis_client = redis_module.Redis(host='127.0.0.1', port=6379, decode_responses=True)
 
 ALLOWED_MODELS = {
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash',
     'gemini-3.5-flash-lite',

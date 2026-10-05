@@ -122,7 +122,7 @@ fun BatchScreen(onNavigate: (String) -> Unit) {
                 }
             }
             MutedText(
-                "対応モデル: Gemini 3.6 Flash / 3.5 Flash / 3.5 Flash-Lite / 3 Flash Preview / 3.1 Flash-Lite。" +
+                "対応モデル: Gemini 3.8 / 3.7 / 3.6 / 3.5 Flash、3.5 Flash-Lite、3 Flash Preview、3.1 Flash-Lite。" +
                     "Transcribe・Live・OpenAI・Grok には公式のBatch APIがないため対象外です。ワークスペースでGeminiモデルを選び「Batchで実行」をオンにすると投入できます。",
                 fontSize = 12.sp
             )

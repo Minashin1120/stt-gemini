@@ -153,6 +153,8 @@ async function showSwitchView(currentModel) {
         const models = [];
         if (data.has_gemini_key) {
             models.push(
+                { label: 'Gemini 3.8 Flash', value: 'gemini-3.8-flash' },
+                { label: 'Gemini 3.7 Flash', value: 'gemini-3.7-flash' },
                 { label: 'Gemini 3.6 Flash', value: 'gemini-3.6-flash' },
                 { label: 'Gemini 3.5 Flash', value: 'gemini-3.5-flash' },
                 { label: 'Gemini 3.5 Flash-Lite', value: 'gemini-3.5-flash-lite' },
