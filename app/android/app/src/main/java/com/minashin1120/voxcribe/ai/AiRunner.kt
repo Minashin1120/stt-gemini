@@ -33,6 +33,7 @@ sealed class AiRequest {
         val rephrase: Boolean,
         val filler: Boolean,
         val append: Boolean,
+        val transient: Boolean = false,
     ) : AiRequest()
 
     data class Reanalyze(val model: String, val thinkingLevel: String, val rephrase: Boolean, val filler: Boolean) : AiRequest()
@@ -75,17 +76,19 @@ class AiRunner(
         if (req.file.length() > Models.maxBytes(model)) throw AiException("音声ファイルが上限サイズを超えています")
         val apiKey = requireKey(model)
         // 新規（追加でない）場合は履歴と保存音声をすべて削除してから開始（app.py と同じ）
-        if (!req.append) {
+        if (!req.transient && !req.append) {
             db.clearHistory()
             audio.deleteAllExcept(req.file)
             prefs.lastAudioFile = null
             prefs.lastAudioMime = null
         }
-        prefs.lastAudioFile = req.file.name
-        prefs.lastAudioMime = req.mime
-        runStt(model, apiKey, req.file, req.mime, req.thinkingLevel, token, emit, "transcribe", "Audio Input") {
+        if (!req.transient) {
+            prefs.lastAudioFile = req.file.name
+            prefs.lastAudioMime = req.mime
+        }
+        runStt(model, apiKey, req.file, req.mime, req.thinkingLevel, token, emit, "transcribe", "Audio Input", persist = !req.transient) {
             Prompts.transcription(
-                historyContext(), wordListContext(), Prompts.TRANSCRIBE_MODE_LABEL,
+                if (req.transient) "" else historyContext(), wordListContext(), Prompts.TRANSCRIBE_MODE_LABEL,
                 req.rephrase, req.filler, Models.isLite(model)
             )
         }
@@ -113,6 +116,7 @@ class AiRunner(
         emit: (AiEvent) -> Unit,
         action: String,
         summary: String,
+        persist: Boolean = true,
         prompt: () -> String,
     ) {
         val status: (String) -> Unit = { emit(AiEvent.Status(it)) }
@@ -124,7 +128,7 @@ class AiRunner(
                 if (token.isCancelled) throw CancelledException()
                 emit(AiEvent.ReplaceText(text))
                 emit(AiEvent.Done)
-                saveHistory(action, summary, "", text)
+                if (persist) saveHistory(action, summary, "", text)
             }
             Models.isGeminiStt(model) -> {
                 val raw = if (model == "gemini-3.5-transcribe-live")
@@ -133,7 +137,7 @@ class AiRunner(
                 val text = applyWordReplacements(raw)
                 if (token.isCancelled) throw CancelledException()
                 emit(AiEvent.ReplaceText(text)); emit(AiEvent.Done)
-                saveHistory(action, summary, "", text)
+                if (persist) saveHistory(action, summary, "", text)
             }
             Models.isOpenAi(model) -> {
                 val live = model == "gpt-live-transcribe" || model == "gpt-realtime-whisper"
@@ -145,7 +149,7 @@ class AiRunner(
                 if (token.isCancelled) throw CancelledException()
                 emit(AiEvent.ReplaceText(text))
                 emit(AiEvent.Done)
-                saveHistory(action, summary, "", text)
+                if (persist) saveHistory(action, summary, "", text)
             }
             else -> {
                 val parts = listOf(GeminiPart.Text(prompt()), GeminiPart.Audio(file, mime))
@@ -154,7 +158,7 @@ class AiRunner(
                     { emit(AiEvent.Thought(it)) }, { emit(AiEvent.Text(it)) }, progress
                 )
                 emit(AiEvent.Done)
-                saveHistory(action, summary, thought, text)
+                if (persist) saveHistory(action, summary, thought, text)
             }
         }
     }

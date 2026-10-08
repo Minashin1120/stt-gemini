@@ -63,5 +63,27 @@ class Prefs(context: Context) {
         get() = getString("last_audio_mime")
         set(v) = sp.edit { if (v == null) remove("last_audio_mime") else putString("last_audio_mime", v) }
 
+    var toolbarEnabled: Boolean
+        get() = sp.getBoolean("toolbar_enabled", true)
+        set(v) = sp.edit { putBoolean("toolbar_enabled", v) }
+    var toolbarModel: String
+        get() = getString("toolbar_model") ?: "gemini-3.6-flash"
+        set(v) = putString("toolbar_model", v)
+    var toolbarThinking: String
+        get() = getString("toolbar_thinking") ?: "LOW"
+        set(v) = putString("toolbar_thinking", v)
+    var toolbarRephrase: Boolean
+        get() = sp.getBoolean("toolbar_rephrase", false)
+        set(v) = sp.edit { putBoolean("toolbar_rephrase", v) }
+    var toolbarFiller: Boolean
+        get() = sp.getBoolean("toolbar_filler", false)
+        set(v) = sp.edit { putBoolean("toolbar_filler", v) }
+    var toolbarNoise: Boolean
+        get() = sp.getBoolean("toolbar_noise", true)
+        set(v) = sp.edit { putBoolean("toolbar_noise", v) }
+    var toolbarFormat: String
+        get() = getString("toolbar_format") ?: "mp3"
+        set(v) = putString("toolbar_format", v)
+
     fun clearAll() = sp.edit { clear() }
 }

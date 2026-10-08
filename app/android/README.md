@@ -26,6 +26,7 @@ Web 版（`app/`）と同じ画面・機能・文言を持つネイティブ And
 |---|---|
 | 録音 | `AudioManager` で内蔵マイク数を検出し、**2つ以上ならステレオ（両マイク）で録音**。停止時に `(L+R)×0.5` でモノラル統合し、Web 版と同じレベル補正 → MP3(192kbps)/WAV でエンコード |
 | ノイズ除去 | ON: `MIC` ソース + NoiseSuppressor / AGC。OFF: `UNPROCESSED`（非対応端末は `MIC` + エフェクト無効） |
+| 通知ツールバー | 通知から録音開始・停止してコピー・破棄・一時停止してアプリで継続。専用設定（モデル・推論・修正・フィラー・ノイズ・形式）を持ち、履歴・結果ボックス・保存音声を更新しない。アプリ継続後もコピー専用。待機時は通常通知、録音/処理中のみサービス稼働 |
 | 認証 | ログイン・登録・ロック解除は無し（初回起動時のみ Welcome を表示） |
 | 危険な操作 | 「アカウント削除」の代わりに「端末内データをすべて削除」 |
 | GPT-Live | `ffmpeg` の代わりに MediaCodec で 24kHz モノラル PCM に変換 |
@@ -41,5 +42,7 @@ Web 版（`app/`）と同じ画面・機能・文言を持つネイティブ And
 | `ai/GeminiClient.kt`・`ai/SttClients.kt` | Gemini（SSE）・xAI STT・OpenAI（SSE / JSON / Realtime WebSocket、Whisper 対応） | `process_*_background` |
 | `audio/` | マイク検出・録音・モノラル統合・正規化・エンコード | `static/js/index/`（`audio-dsp.js` `mic.js` `capture.js` `recording.js`）の録音処理 |
 | `data/` | SQLite（履歴・単語セット）・設定・暗号化キー・音声保存 | MariaDB / `uploads/` / localStorage |
+| `task/RecordingToolbar.kt`・`ToolbarService.kt`・`ToolbarActionActivity.kt`・`ToolbarRestoreReceiver.kt` | 通知専用録音・コピー・アプリ継続・再起動後の通知復元（[README](app/src/main/java/com/minashin1120/voxcribe/task/README.md)） | Android専用 |
+| `ui/settings/ToolbarSettings.kt` | 通知用設定（[README](app/src/main/java/com/minashin1120/voxcribe/ui/settings/README.md)） | Android専用 |
 | `task/` | フォアグラウンドサービス、保持時間による自動削除、Batch完了通知（`BatchWork`: WorkManager 15分周期、進行中ジョブがある間のみ） | Redis タスク / `cleanup_old_data` |
 | `ui/` | 画面（Welcome / ワークスペース / Batch / 設定）、9 テーマ | `templates/`・`static/js/index/`・`static/css/*.css`（ワークスペースは [ui/workspace/README.md](app/src/main/java/com/minashin1120/voxcribe/ui/workspace/README.md)） |

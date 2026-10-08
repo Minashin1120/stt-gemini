@@ -22,7 +22,7 @@ Web 版の対応先は `app/static/js/index/*.js`（[README](../../../../../../.
 | ファイル | 内容 | Web 版の対応 |
 |----------|------|--------------|
 | `WorkspaceController.kt` | データクラス（`StatusView` `UploadPanel` `ApiKeyPrompt` …）、状態（`mutableStateOf`）、設定変更、画面開始処理 | `state.js` `settings.js` |
-| `WorkspaceRecording.kt` | マイク準備、録音の開始/停止/一時停止/キャンセル、Grok Live、録音データの送信（`upl` / `finalizeLiveGrok`） | `ui-mic.js` `recording.js` `grok-live.js` `actions.js` |
+| `WorkspaceRecording.kt` | 通知から引き継いだ録音は `task/RecordingToolbar` に停止・破棄を委譲し、コピー専用で完了する。 マイク準備、録音の開始/停止/一時停止/キャンセル、Grok Live、録音データの送信（`upl` / `finalizeLiveGrok`） | `ui-mic.js` `recording.js` `grok-live.js` `actions.js` |
 | `WorkspaceUpload.kt` | ファイル選択、アップロード、アップロード進捗 UI | `settings.js`（`handleFileSelect`）`stream.js` |
 | `WorkspaceTask.kt` | AI 処理の実行（`startTask`）、結果のストリーム表示、中断 | `stream.js`（`handleStreamResponse`） |
 | `WorkspacePostprocess.kt` | 再分析・改善・間隔修正・言い直し修正、コピー、音声削除、一括削除 | `actions.js` |

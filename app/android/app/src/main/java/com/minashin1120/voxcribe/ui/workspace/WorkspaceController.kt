@@ -105,6 +105,8 @@ class WorkspaceController(internal val app: VoxcribeApp) {
     var useAudioForImprove by mutableStateOf(false)
 
     // 録音
+    var openRecordingRequested by mutableStateOf(false)
+    internal var notificationRecording = false
     var isRecording by mutableStateOf(false)
         internal set
     var isPaused by mutableStateOf(false)

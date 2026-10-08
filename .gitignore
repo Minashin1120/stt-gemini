@@ -62,3 +62,8 @@ app/android/app/build/
 app/android/local.properties
 *.iml
 !app/android/ci/debug.keystore
+
+# Local agent configuration / GitHub credentials
+.github_pat
+.claude/
+.claude.json

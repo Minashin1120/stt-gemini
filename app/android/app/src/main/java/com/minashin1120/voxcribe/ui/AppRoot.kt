@@ -43,6 +43,12 @@ fun AppRoot(onRequestPermissions: () -> Unit, onInstallUpdate: (File) -> Unit) {
     val theme = Themes.of(ThemeState.key)
     var screen by rememberSaveable { mutableStateOf(if (app.prefs.welcomeSeen) "workspace" else "welcome") }
 
+    LaunchedEffect(app.workspace.openRecordingRequested) {
+        if (app.workspace.openRecordingRequested) {
+            screen = "workspace"
+            app.workspace.openRecordingRequested = false
+        }
+    }
     LaunchedEffect(Unit) { onRequestPermissions() }
     LaunchedEffect(Unit) { app.updates.checkOnStart() }
 

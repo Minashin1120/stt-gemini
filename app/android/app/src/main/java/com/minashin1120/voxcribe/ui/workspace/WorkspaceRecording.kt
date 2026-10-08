@@ -25,6 +25,7 @@ import java.io.File
 // ================= マイク準備 =================
 
 fun WorkspaceController.prepareMic() {
+    if (app.toolbar.busy || !recordButtonsEnabled) return
     if (!hasMicPermission()) {
         status = StatusView("マイク未準備")
         return
@@ -60,6 +61,10 @@ fun WorkspaceController.prepareMic() {
 // ================= 録音 =================
 
 fun WorkspaceController.rec(append: Boolean) {
+    if (app.toolbar.busy || isRecording || !recordButtonsEnabled) {
+        toast.show("録音または通知の処理が進行中です", true)
+        return
+    }
     if (!hasMicPermission()) {
         toast.show("マイクの使用が許可されていません", true)
         return
@@ -73,6 +78,7 @@ fun WorkspaceController.rec(append: Boolean) {
         }
         return
     }
+    recordButtonsEnabled = false
     isAppendMode = append
     if (!append) clearResultUiForNew()
     copyEnabled = false
@@ -123,6 +129,8 @@ fun WorkspaceController.rec(append: Boolean) {
             recorder.release()
             status = StatusView("エラー")
             toast.show(e.message ?: e.toString(), true)
+        } finally {
+            recordButtonsEnabled = true
         }
     }
 }
@@ -154,10 +162,12 @@ internal fun WorkspaceController.recordingStatus(mic: MicSettings, noiseOn: Bool
 fun WorkspaceController.togglePause() {
     isPaused = !isPaused
     recorder.paused = isPaused
+    if (notificationRecording) app.toolbar.pauseChanged(isPaused)
     status = if (isPaused) StatusView("一時停止") else recordingStatus(lastMicSettings ?: return, recordNoise, full = false)
 }
 
 fun WorkspaceController.cancelRecording() {
+    if (notificationRecording) { app.toolbar.cancel(); return }
     isRecording = false
     isPaused = false
     noiseSwitchEnabled = true
@@ -246,6 +256,7 @@ internal fun WorkspaceController.floatToPcm16Interleaved(buf: FloatArray): ByteA
 }
 
 fun WorkspaceController.stopRecording() {
+    if (notificationRecording) { app.toolbar.stop(); return }
     isRecording = false
     isPaused = false
     noiseSwitchEnabled = true

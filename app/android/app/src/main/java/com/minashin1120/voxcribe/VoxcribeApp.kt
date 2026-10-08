@@ -25,6 +25,7 @@ class VoxcribeApp : Application() {
     lateinit var batchRunner: BatchRunner
     lateinit var toaster: Toaster
     lateinit var workspace: WorkspaceController
+    lateinit var toolbar: com.minashin1120.voxcribe.task.RecordingToolbar
     lateinit var updates: UpdateController
 
     override fun onCreate() {
@@ -38,6 +39,8 @@ class VoxcribeApp : Application() {
         batchRunner = BatchRunner(db, prefs, secrets, audio, runner)
         toaster = Toaster()
         workspace = WorkspaceController(this)
+        toolbar = com.minashin1120.voxcribe.task.RecordingToolbar(this)
+        toolbar.refresh()
         updates = UpdateController(this)
         RetentionCleaner.start(this)
     }

@@ -98,12 +98,17 @@ fun WorkspaceController.akDownload() {
 // ================= 全データ削除（設定画面） =================
 
 fun WorkspaceController.wipeAllData() {
+    app.toolbar.cancel()
+    app.prefs.toolbarEnabled = false
+    app.toolbar.refresh()
     currentToken?.cancel()
     if (isRecording) cancelRecording()
     app.db.wipeAll()
     app.audio.deleteAllExcept(null)
     app.secrets.clearAll()
     prefs.clearAll()
+    prefs.toolbarEnabled = false
+    app.toolbar.refresh()
     history.clear()
     wordSets.clear()
     resultText = ""

@@ -13,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.minashin1120.voxcribe.task.RecordingToolbar
 import com.minashin1120.voxcribe.ui.AppRoot
 import com.minashin1120.voxcribe.ui.workspace.prepareMic
 import java.io.File
@@ -20,6 +21,7 @@ import java.io.File
 class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        VoxcribeApp.instance.toolbar.refresh()
         if (result[Manifest.permission.RECORD_AUDIO] == true) {
             val ws = VoxcribeApp.instance.workspace
             if (ws.tab == 0 && !ws.isRecording) ws.prepareMic()
@@ -34,8 +36,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleToolbarIntent(intent)
         enableEdgeToEdge()
         setContent { AppRoot(onRequestPermissions = ::askPermissions, onInstallUpdate = ::installApk) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleToolbarIntent(intent)
+    }
+
+    private fun handleToolbarIntent(intent: Intent?) {
+        if (intent?.action == RecordingToolbar.CONTINUE) {
+            VoxcribeApp.instance.toolbar.handoff()
+            intent.action = null
+        }
+        VoxcribeApp.instance.toolbar.refresh()
     }
 
     fun askPermissions() {

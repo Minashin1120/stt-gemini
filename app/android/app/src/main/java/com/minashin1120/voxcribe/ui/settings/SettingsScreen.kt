@@ -206,6 +206,8 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
                 }, icon = Icons.Outlined.Check)
             }
 
+            ToolbarSettings()
+
             // ---------- 単語リスト ----------
             SettingsCard(Icons.Outlined.SwapHoriz, "単語リスト") {
                 MutedText("すべての単語セットをJSONファイルに書き出したり、書き出したファイルから追加できます。Web版とAndroid版の間でも移行できます。", fontSize = 13.sp)
@@ -286,7 +288,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit) {
 }
 
 @Composable
-private fun SettingsCard(icon: ImageVector, title: String, content: @Composable () -> Unit) {
+internal fun SettingsCard(icon: ImageVector, title: String, content: @Composable () -> Unit) {
     val t = T.c
     Column(Modifier.fillMaxWidth().appCard(t)) {
         Row(Modifier.fillMaxWidth().background(t.cardBg).padding(horizontal = 20.dp, vertical = 17.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -311,7 +313,7 @@ private fun KeyStatus(label: String, has: Boolean) {
 }
 
 @Composable
-private fun FieldLabel(text: String, bold: Boolean = false) {
+internal fun FieldLabel(text: String, bold: Boolean = false) {
     Text(text, color = T.c.text, fontSize = 13.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.SemiBold, modifier = Modifier.padding(bottom = 7.dp))
 }
 
