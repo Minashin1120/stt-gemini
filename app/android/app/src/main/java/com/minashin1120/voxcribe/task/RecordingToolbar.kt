@@ -40,7 +40,6 @@ class RecordingToolbar(private val app: VoxcribeApp) {
     private var token: CancelToken? = null
     private var job: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    val preparing get() = recording && mic == null
     private var message = "通知から録音できます"
     private var pendingText: String? = null
     private val ws get() = app.workspace
@@ -58,7 +57,6 @@ class RecordingToolbar(private val app: VoxcribeApp) {
             .setSmallIcon(R.drawable.ic_stat_voxcribe).setContentTitle("Voxcribe 録音ツールバー")
             .setContentText(message).setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setOngoing(true).setOnlyAlertOnce(true)
-            .setContentIntent(activity("open", MainActivity::class.java))
         when {
             recording -> {
                 builder.addAction(0, "停止してコピー", service(STOP))
@@ -67,8 +65,8 @@ class RecordingToolbar(private val app: VoxcribeApp) {
             }
             processing -> builder.addAction(0, "中止", service(CANCEL))
             else -> {
-                builder.addAction(0, "録音開始", activity(START, ToolbarActionActivity::class.java))
-                if (pendingText != null) builder.addAction(0, "コピー", activity(COPY, ToolbarActionActivity::class.java))
+                builder.addAction(0, "録音開始", startServiceAction())
+                if (pendingText != null) builder.addAction(0, "コピー", copyAction())
             }
         }
         return builder.build()
@@ -84,13 +82,23 @@ class RecordingToolbar(private val app: VoxcribeApp) {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    /** 呼び出し元は表示中のActivity。サービスのmicrophone登録完了後に開始する。 */
+    private fun startServiceAction(): PendingIntent = PendingIntent.getForegroundService(
+        app, START.hashCode(), Intent(app, ToolbarService::class.java).setAction(START),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    private fun copyAction(): PendingIntent = PendingIntent.getBroadcast(
+        app, COPY.hashCode(), Intent(app, ToolbarCommandReceiver::class.java).setAction(COPY),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    /** 通知操作によるマイクサービス開始の例外を利用し、Activityを開かず開始する。 */
     fun start(): Boolean {
         if (!app.prefs.toolbarEnabled || busy || ws.isRecording || ws.taskRunning || !ws.recordButtonsEnabled) {
             message = "アプリの録音・処理の終了後に開始してください"; refresh(); return false
         }
         if (!ws.hasMicPermission()) {
-            message = "マイクの使用を許可してください"; refresh(); return false
+            message = "アプリの設定でマイクの使用を許可してください"; refresh(); return false
         }
         val model = Models.validate(app.prefs.toolbarModel)
         if (!app.secrets.has(Models.keyType(model))) {

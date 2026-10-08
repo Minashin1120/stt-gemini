@@ -14,6 +14,21 @@ class ToolbarService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val toolbar = VoxcribeApp.instance.toolbar
+        if (intent?.action == RecordingToolbar.START && !toolbar.busy) {
+            // getForegroundServiceから届くため、開始できない場合も先にforeground登録する。
+            // 通知のタップはバックグラウンドでのmicrophoneサービス開始の例外に該当する。
+            try {
+                startForeground(RecordingToolbar.ID, toolbar.notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } catch (_: Exception) {
+                android.widget.Toast.makeText(this, "録音を開始できません。アプリの設定でマイク権限を確認してください", android.widget.Toast.LENGTH_LONG).show()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            if (!toolbar.start()) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        }
         when (intent?.action) {
             RecordingToolbar.STOP -> toolbar.stop()
             RecordingToolbar.CANCEL -> toolbar.cancel()

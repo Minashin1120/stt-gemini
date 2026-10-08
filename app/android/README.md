@@ -42,7 +42,7 @@ Web 版（`app/`）と同じ画面・機能・文言を持つネイティブ And
 | `ai/GeminiClient.kt`・`ai/SttClients.kt` | Gemini（SSE）・xAI STT・OpenAI（SSE / JSON / Realtime WebSocket、Whisper 対応） | `process_*_background` |
 | `audio/` | マイク検出・録音・モノラル統合・正規化・エンコード | `static/js/index/`（`audio-dsp.js` `mic.js` `capture.js` `recording.js`）の録音処理 |
 | `data/` | SQLite（履歴・単語セット）・設定・暗号化キー・音声保存 | MariaDB / `uploads/` / localStorage |
-| `task/RecordingToolbar.kt`・`ToolbarService.kt`・`ToolbarActionActivity.kt`・`ToolbarRestoreReceiver.kt` | 通知専用録音・コピー・アプリ継続・再起動後の通知復元（[README](app/src/main/java/com/minashin1120/voxcribe/task/README.md)） | Android専用 |
+| `task/RecordingToolbar.kt`・`ToolbarService.kt`・`ToolbarCommandReceiver.kt`・`BatteryOptimization.kt`・`ToolbarRestoreReceiver.kt` | 通知専用録音・コピー・アプリ継続・再起動後の通知復元（[README](app/src/main/java/com/minashin1120/voxcribe/task/README.md)） | Android専用 |
 | `ui/settings/ToolbarSettings.kt` | 通知用設定（[README](app/src/main/java/com/minashin1120/voxcribe/ui/settings/README.md)） | Android専用 |
 | `task/` | フォアグラウンドサービス、保持時間による自動削除、Batch完了通知（`BatchWork`: WorkManager 15分周期、進行中ジョブがある間のみ） | Redis タスク / `cleanup_old_data` |
 | `ui/` | 画面（Welcome / ワークスペース / Batch / 設定）、9 テーマ | `templates/`・`static/js/index/`・`static/css/*.css`（ワークスペースは [ui/workspace/README.md](app/src/main/java/com/minashin1120/voxcribe/ui/workspace/README.md)） |

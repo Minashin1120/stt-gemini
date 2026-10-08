@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
@@ -36,16 +37,12 @@
             android:exported="false"
             android:foregroundServiceType="microphone|dataSync" />
 
-        <activity
-            android:name=".task.ToolbarActionActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
-
         <service
             android:name=".task.ToolbarService"
             android:exported="false"
             android:foregroundServiceType="microphone|dataSync" />
+
+        <receiver android:name=".task.ToolbarCommandReceiver" android:exported="false" />
 
         <receiver android:name=".task.ToolbarRestoreReceiver" android:exported="false">
             <intent-filter>

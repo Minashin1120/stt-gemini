@@ -15,10 +15,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.minashin1120.voxcribe.VoxcribeApp
 import com.minashin1120.voxcribe.ai.Models
+import com.minashin1120.voxcribe.task.BatteryOptimization
+import com.minashin1120.voxcribe.ui.common.BsButton
 import com.minashin1120.voxcribe.ui.common.CustomSelect
 import com.minashin1120.voxcribe.ui.common.MutedText
 import com.minashin1120.voxcribe.ui.common.SwitchRow
@@ -27,6 +30,7 @@ import com.minashin1120.voxcribe.ui.common.SwitchRow
 internal fun ToolbarSettings() {
     val app = VoxcribeApp.instance
     val prefs = app.prefs
+    val context = LocalContext.current
     var enabled by remember { mutableStateOf(prefs.toolbarEnabled) }
     var model by remember { mutableStateOf(prefs.toolbarModel) }
     var thinking by remember { mutableStateOf(prefs.toolbarThinking) }
@@ -49,6 +53,11 @@ internal fun ToolbarSettings() {
                 if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
             }.toTypedArray())
         })
+        BsButton("バッテリー最適化から除外", {
+            if (BatteryOptimization.isExempt(context)) app.toaster.show("すでにバッテリー最適化の対象外です")
+            else BatteryOptimization.offer(context, force = true)
+        })
+        Spacer(Modifier.height(12.dp))
         MutedText("停止すると文字起こしをクリップボードにコピーします。履歴・結果ボックス・保存音声には追加しません。設定は変更すると保存され、次の録音から適用されます。")
         Spacer(Modifier.height(12.dp))
         FieldLabel("通知用モデル")
