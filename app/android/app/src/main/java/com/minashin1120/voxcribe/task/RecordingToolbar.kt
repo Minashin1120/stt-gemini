@@ -59,13 +59,17 @@ class RecordingToolbar(private val app: VoxcribeApp) {
             .setOngoing(true).setOnlyAlertOnce(true)
         when {
             recording -> {
-                builder.addAction(0, "停止してコピー", service(STOP))
+                val stopAction = service(STOP)
+                builder.setContentIntent(stopAction)
+                builder.addAction(0, "停止してコピー", stopAction)
                 builder.addAction(0, "停止してアプリで継続", activity(CONTINUE, MainActivity::class.java))
                 builder.addAction(0, "破棄", service(CANCEL))
             }
             processing -> builder.addAction(0, "中止", service(CANCEL))
             else -> {
-                builder.addAction(0, "録音開始", startServiceAction())
+                val startAction = startServiceAction()
+                builder.setContentIntent(startAction)
+                builder.addAction(0, "録音開始", startAction)
                 if (pendingText != null) builder.addAction(0, "コピー", copyAction())
             }
         }
