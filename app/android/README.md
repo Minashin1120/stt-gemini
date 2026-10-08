@@ -41,6 +41,7 @@ Web 版（`app/`）と同じ画面・機能・文言を持つネイティブ And
 | `ai/BatchClient.kt`・`ai/BatchRunner.kt` | Gemini Batch API（Files upload → `batchGenerateContent` → ポーリング → 結果JSONL）。公式Batchがあるのは Gemini 通常モデルのみ（`Models.supportsBatch`）。取り込みは履歴へ追加のみ | `app/batch.py`・`app/routes_batch.py` |
 | `ai/GeminiClient.kt`・`ai/SttClients.kt` | Gemini（SSE）・xAI STT・OpenAI（SSE / JSON / Realtime WebSocket、Whisper 対応） | `process_*_background` |
 | `audio/` | マイク検出・録音・モノラル統合・正規化・エンコード | `static/js/index/`（`audio-dsp.js` `mic.js` `capture.js` `recording.js`）の録音処理 |
+| `update/` | GitHub Releases の更新確認・APKの4接続並列ダウンロード（[README](app/src/main/java/com/minashin1120/voxcribe/update/README.md)） | Android専用 |
 | `data/` | SQLite（履歴・単語セット）・設定・暗号化キー・音声保存 | MariaDB / `uploads/` / localStorage |
 | `task/RecordingToolbar.kt`・`ToolbarService.kt`・`ToolbarCommandReceiver.kt`・`BatteryOptimization.kt`・`ToolbarRestoreReceiver.kt` | 通知専用録音・コピー・アプリ継続・再起動後の通知復元（[README](app/src/main/java/com/minashin1120/voxcribe/task/README.md)） | Android専用 |
 | `ui/settings/ToolbarSettings.kt` | 通知用設定（[README](app/src/main/java/com/minashin1120/voxcribe/ui/settings/README.md)） | Android専用 |

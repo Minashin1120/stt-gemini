@@ -94,7 +94,7 @@ jobs:
       - name: Build Debug APK
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+          ./gradlew testDebugUnitTest assembleDebug --stacktrace 2>&1 | tee build.log
 
       # ビルド失敗時、原因をアノテーションとして出力（ログを開かなくても確認できるようにする）
       - name: Report build errors

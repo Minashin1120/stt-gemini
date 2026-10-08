@@ -6,10 +6,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.minashin1120.voxcribe.VoxcribeApp
 import com.minashin1120.voxcribe.ai.Http
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.Request
 import java.io.File
 
 /**
@@ -19,6 +19,7 @@ import java.io.File
 class UpdateController(private val app: VoxcribeApp) {
     private val ctx: Context get() = app
     private val scope = app.appScope
+    private val downloader = ApkDownloader(Http.client, Http.userAgent)
 
     var info by mutableStateOf<UpdateInfo?>(null)
         private set
@@ -63,42 +64,20 @@ class UpdateController(private val app: VoxcribeApp) {
         progress = 0f
         error = null
         scope.launch {
-            val result = withContext(Dispatchers.IO) { download(target) }
-            downloading = false
-            if (result != null) downloadedFile = result else error = "ダウンロードに失敗しました。"
-        }
-    }
-
-    private fun download(target: UpdateInfo): File? = try {
-        val dir = File(ctx.cacheDir, "updates").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
-        val out = File(dir, "voxcribe-${target.version}.apk")
-        val req = Request.Builder().url(target.downloadUrl).header("User-Agent", Http.userAgent).build()
-        Http.client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) null
-            else {
-                val body = resp.body
-                if (body == null) null
-                else {
-                    val total = if (target.sizeBytes > 0) target.sizeBytes else body.contentLength()
-                    var written = 0L
-                    out.outputStream().use { sink ->
-                        body.byteStream().use { src ->
-                            val buf = ByteArray(64 * 1024)
-                            while (true) {
-                                val n = src.read(buf)
-                                if (n <= 0) break
-                                sink.write(buf, 0, n)
-                                written += n
-                                if (total > 0) progress = (written.toFloat() / total).coerceIn(0f, 1f)
-                            }
-                        }
-                    }
-                    out
+            try {
+                downloadedFile = withContext(Dispatchers.IO) {
+                    val dir = File(ctx.cacheDir, "updates").apply { mkdirs() }
+                    dir.listFiles()?.forEach { it.delete() }
+                    downloader.download(target.downloadUrl, target.sizeBytes,
+                        File(dir, "voxcribe-${target.version}.apk")) { progress = it }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                error = "ダウンロードに失敗しました。"
+            } finally {
+                downloading = false
             }
         }
-    } catch (_: Exception) {
-        null
     }
 }
