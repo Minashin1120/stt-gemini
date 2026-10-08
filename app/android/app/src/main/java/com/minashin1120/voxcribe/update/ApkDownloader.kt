@@ -115,15 +115,21 @@ internal class ApkDownloader(client: OkHttpClient, private val userAgent: String
         var written = 0L
         body.byteStream().use { source ->
             val buffer = ByteArray(BUFFER_SIZE)
+            var buffered = 0
             while (true) {
-                val count = source.read(buffer)
+                val count = source.read(buffer, buffered, buffer.size - buffered)
                 if (count < 0) break
                 if (count == 0) continue
                 written += count
                 if (expected >= 0 && written > expected) throw IOException("APKのサイズ超過")
-                write(buffer, count)
+                buffered += count
+                if (buffered == buffer.size) {
+                    write(buffer, buffered)
+                    buffered = 0
+                }
                 progress.add(count)
             }
+            if (buffered > 0) write(buffer, buffered)
         }
         if (written == 0L || (expected >= 0 && written != expected)) throw IOException("APKの取得が不完全です")
     }
