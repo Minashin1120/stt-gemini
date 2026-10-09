@@ -7,7 +7,6 @@ import androidx.compose.runtime.setValue
 import com.minashin1120.voxcribe.VoxcribeApp
 import com.minashin1120.voxcribe.ai.Http
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
