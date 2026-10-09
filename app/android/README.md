@@ -47,4 +47,4 @@ Web 版（`app/`）と同じ画面・機能・文言を持つネイティブ And
 | `ui/settings/ToolbarSettings.kt` | 通知用設定（[README](app/src/main/java/com/minashin1120/voxcribe/ui/settings/README.md)） | Android専用 |
 | `task/` | フォアグラウンドサービス、保持時間による自動削除、Batch完了通知（`BatchWork`: WorkManager 15分周期、進行中ジョブがある間のみ） | Redis タスク / `cleanup_old_data` |
 | `ui/` | 画面（Welcome / ワークスペース / Batch / 設定）、9 テーマ | `templates/`・`static/js/index/`・`static/css/*.css`（ワークスペースは [ui/workspace/README.md](app/src/main/java/com/minashin1120/voxcribe/ui/workspace/README.md)） |
-| `ui/splash/SplashScreen.kt` | 起動スプラッシュ（ぼかし・拡大・波紋を使った演出。アイコン原本は `src/main/svg/voxcribe_icon.svg`、アプリ内はVectorDrawable） | Android専用 |
+| `ui/splash/StartupSplash.kt` | 起動スプラッシュ（ai-chat版と同じ演出: ぼかしで現れるロゴ→波形バー→ロゴの中へダイブしてアプリが見える。アイコン原本は `src/main/svg/voxcribe_icon.svg`、アプリ内はVectorDrawable） | Android専用 |
