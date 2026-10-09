@@ -42,7 +42,7 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 private const val INTRO_MS = 1900
-private const val EXIT_MS = 520
+private const val EXIT_MS = 950
 private val BAR_HEIGHTS = floatArrayOf(10f, 22f, 34f, 44f, 34f, 22f, 10f)
 
 /** 区間 [a,b] に正規化した進行度（0..1） */
@@ -72,22 +72,24 @@ fun SplashScreen(onFinished: () -> Unit) {
     val t = intro.value * INTRO_MS / 1000f // 秒
     val x = exit.value
 
-    Box(
-        Modifier.fillMaxSize()
-            .alpha(1f - x)
-            .scale(1f + 0.12f * x)
-            .blur((26f * x).dp, BlurredEdgeTreatment.Unbounded)
-            .background(Brush.linearGradient(listOf(Color(0xFF0B1020), Color(0xFF0D1427), Color(0xFF0A1120)))),
-        contentAlignment = Alignment.Center
-    ) {
+    // 退場: ロゴが手前に飛び出して画面外へ抜け、背景が徐々に薄れてアプリ画面が見えてくる
+    val fly = seg(x, 0f, 0.85f, Easing { f -> f * f * f }) // 加速して飛び出す
+    val textOut = 1f - seg(x, 0f, 0.3f)
+    val bgAlpha = 1f - seg(x, 0.2f, 1f, LinearEasing)
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize().alpha(bgAlpha)
+                .background(Brush.linearGradient(listOf(Color(0xFF0B1020), Color(0xFF0D1427), Color(0xFF0A1120))))
+        )
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         // 背景オーブ（強くぼかして漂わせる）
-        val orbIn = seg(t, 0f, 0.8f)
+        val orbIn = seg(t, 0f, 0.8f) * (1f - seg(x, 0f, 0.6f))
         Orb(Color(0xFF6668FF), 300.dp, (-90 + 40 * sin(t * 1.3f)).dp, (-170 + 30 * sin(t * 1.1f + 1f)).dp, 0.55f * orbIn, 1.2f - 0.2f * orbIn)
         Orb(Color(0xFF2CB9A8), 280.dp, (100 + 36 * sin(t * 1.2f + 2f)).dp, (190 + 34 * sin(t * 0.9f)).dp, 0.5f * orbIn, 1.2f - 0.2f * orbIn)
         Orb(Color(0xFFB07CFF), 200.dp, (70 + 30 * sin(t * 1.5f + 4f)).dp, (-60 + 30 * sin(t * 1.0f + 2f)).dp, 0.32f * orbIn, 1f)
 
         // 波紋
-        Canvas(Modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize().alpha(textOut)) {
             val c = Offset(size.width / 2f, size.height / 2f - 28.dp.toPx())
             for (k in 0 until 3) {
                 val p = seg(t, 0.55f + 0.18f * k, 1.45f + 0.18f * k)
@@ -103,14 +105,15 @@ fun SplashScreen(onFinished: () -> Unit) {
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.offset(y = (-28).dp)) {
+            val tileOut = 1f - seg(x, 0.6f, 1f, LinearEasing)
             // ロゴタイル: ぼけた状態から拡大しつつピントが合う
             val tileP = seg(t, 0f, 0.55f, BackOut)
             val tileA = seg(t, 0f, 0.3f)
             Box(
                 Modifier.size(112.dp)
-                    .blur((28f * (1f - seg(t, 0f, 0.6f))).dp, BlurredEdgeTreatment.Unbounded)
-                    .alpha(tileA)
-                    .scale(0.55f + 0.45f * tileP)
+                    .blur((28f * (1f - seg(t, 0f, 0.6f)) + 10f * fly).dp, BlurredEdgeTreatment.Unbounded)
+                    .alpha(tileA * tileOut)
+                    .scale((0.55f + 0.45f * tileP) * (1f + 15f * fly))
                     .shadow(28.dp, RoundedCornerShape(32.dp), ambientColor = Color(0xFF5B5CE2), spotColor = Color(0xFF5B5CE2))
                     .clip(RoundedCornerShape(32.dp))
                     .background(Brush.linearGradient(listOf(Color(0xFF7374F5), Color(0xFF4B4CCC))))
@@ -139,7 +142,7 @@ fun SplashScreen(onFinished: () -> Unit) {
                 "Voxcribe",
                 color = Color(0xFFF5F7FF), fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, fontFamily = Fonts.inter,
                 letterSpacing = (10f - 10.5f * wp).sp,
-                modifier = Modifier.offset(y = (14f * (1f - wp)).dp).alpha(wp).blur((18f * (1f - wp)).dp, BlurredEdgeTreatment.Unbounded)
+                modifier = Modifier.offset(y = (14f * (1f - wp)).dp).alpha(wp * textOut).blur((18f * (1f - wp)).dp, BlurredEdgeTreatment.Unbounded)
             )
             Spacer(Modifier.height(8.dp))
             val sp2 = seg(t, 0.8f, 1.3f)
@@ -147,8 +150,9 @@ fun SplashScreen(onFinished: () -> Unit) {
                 "AI TRANSCRIPTION",
                 color = Color(0xFF9BA3BC), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                 letterSpacing = (8f - 6.7f * sp2).sp,
-                modifier = Modifier.alpha(sp2).blur((10f * (1f - sp2)).dp, BlurredEdgeTreatment.Unbounded)
+                modifier = Modifier.alpha(sp2 * textOut).blur((10f * (1f - sp2)).dp, BlurredEdgeTreatment.Unbounded)
             )
+        }
         }
     }
 }
