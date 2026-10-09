@@ -15,6 +15,8 @@ import com.minashin1120.voxcribe.task.WorkService
 import com.minashin1120.voxcribe.ui.common.BadgeColor
 import com.minashin1120.voxcribe.ui.common.BadgeSpec
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -23,6 +25,8 @@ import java.io.File
 // WorkspaceController の拡張関数。状態は WorkspaceController.kt に持つ（internal 公開）。
 
 // ================= マイク準備 =================
+
+private const val MIC_PREPARE_TIMEOUT_MS = 8_000L
 
 fun WorkspaceController.prepareMic() {
     if (app.toolbar.busy || !recordButtonsEnabled) return
@@ -35,10 +39,13 @@ fun WorkspaceController.prepareMic() {
     recordButtonsEnabled = false
     scope.launch {
         try {
-            val (info, settings) = withContext(Dispatchers.IO) {
-                val info = MicProbe.probe(ctx)
-                info to recorder.open(info, noiseOn)
-            }
+            // 音声HALが応答しない端末でボタンが無効のまま固まらないよう、await側にタイムアウトを掛ける
+            val (info, settings) = withTimeoutOrNull(MIC_PREPARE_TIMEOUT_MS) {
+                async(Dispatchers.IO) {
+                    val info = MicProbe.probe(ctx)
+                    info to recorder.open(info, noiseOn)
+                }.await()
+            } ?: throw MicProcessingException("マイクの準備がタイムアウトしました。再度お試しください")
             micInfo = info
             lastMicSettings = settings
             preparedNoiseOn = noiseOn
