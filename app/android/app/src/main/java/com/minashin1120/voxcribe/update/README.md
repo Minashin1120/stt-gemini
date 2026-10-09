@@ -2,10 +2,9 @@
 
 - `UpdateChecker.kt`: GitHub Releases の最新版・APK URL・サイズを取得し、公開版のバージョンを比較する。
 - `UpdateController.kt`: 起動時の確認、ダイアログ状態、ダウンロード開始・進捗・エラーを管理する。
-- `UpdateDownloadService.kt`: 更新APKのダウンロード中にフォアグラウンドサービスでプロセスを維持し、通知に進捗を表示する。
 - `ApkDownloader.kt`: APK 専用 HTTP クライアントで取得する。HEAD でリダイレクト先・サイズ・Range 対応・強い ETag を確認し、4MB 以上は HTTP/1.1 の4接続で別範囲を同じ一時ファイルへ保存する。全範囲の完了後に APK 名へ変更する。
 
-依存は `UpdateController` → `UpdateChecker` / `ApkDownloader`、`UpdateDownloadService` → `UpdateController`。画面は `ui/update/UpdateDialog.kt`、インストールは `MainActivity.kt` が担当する。Web版には対応機能がない。
+依存は `UpdateController` → `UpdateChecker` / `ApkDownloader`。画面は `ui/update/UpdateDialog.kt`、インストールは `MainActivity.kt` が担当する。Web版には対応機能がない。
 
 進捗は各接続の受信ごとに同期して集計・更新し、時間による間引きはしない。コピー用バッファも従来どおり64KB。受信サイズが小さい場合は64KBまでまとめてファイルへ書き込み、進捗通知は受信ごとに行う。
 
