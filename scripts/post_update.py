@@ -83,6 +83,16 @@ def drop_section(lines, header):
     return out
 
 
+def refresh_toc():
+    """節の増減で行番号がずれるため、目次（scripts/notes_toc.py）を更新する。"""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import notes_toc
+        notes_toc.update()
+    except (SystemExit, ImportError):
+        pass
+
+
 def write_stop_section(step, detail):
     lines = drop_section(read_notes(), STOP_H)
     st = sh(['git', 'status', '-sb']).stdout.splitlines()[:1]
@@ -100,6 +110,7 @@ def write_stop_section(step, detail):
     lines[idx:idx] = body
     with open(NOTES, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
+    refresh_toc()
 
 
 def clear_sections():
@@ -110,6 +121,7 @@ def clear_sections():
     if new != lines:
         with open(NOTES, 'w', encoding='utf-8') as f:
             f.write('\n'.join(new))
+        refresh_toc()
 
 
 # ---- GitHub API ---------------------------------------------------------------

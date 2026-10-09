@@ -70,3 +70,4 @@ app/android/local.properties
 
 # Agent instructions (local only)
 AGENTS.md
+android-build.md
