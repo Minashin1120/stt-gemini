@@ -162,7 +162,7 @@ private fun DrawScope.drawOrb(color: Color, center: Offset, radius: Float, alpha
 /**
  * Startup animation: soft light blooms drift behind the logo while it blurs into focus, the waveform bars rise,
  * then the camera dives through the speech bubble (the bubble opens into a window onto the app) with a
- * shock ring. Blur is used for the arrival, the glow around the logo, the dive and the ring.
+ * shock ring. Blur is used only for the logo arrival.
  */
 @Composable
 internal fun StartupSplash(onFinished: () -> Unit) {
@@ -222,22 +222,18 @@ internal fun StartupSplash(onFinished: () -> Unit) {
             }
         }
 
-        // 2. Bloom: the bubble silhouette, heavily blurred, glowing around the sharp logo.
-        Canvas(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer { renderEffect = blurEffect(34f) },
-        ) {
+        // 2. Bloom: the bubble silhouette as stacked, fainter, larger copies (a full-screen blur layer is too heavy for some GPUs).
+        Canvas(Modifier.fillMaxSize()) {
             val t = clock.value * TOTAL_MS
             val layout = SplashLayout(size.width, size.height)
             val arrive = phase(t, LOGO_IN_START, LOGO_IN_END, EaseOutBack)
             val zoom = phase(t, ZOOM_START, ZOOM_END, EaseIn)
             val breathe = 0.85f + 0.15f * sin(t / 1_000f * 4f)
-            drawBubble(
-                layout,
-                (0.55f + 0.45f * arrive) * layout.maxScale.pow(zoom) * 1.1f,
-                Indigo.copy(alpha = 0.85f * phase(t, 120f, 800f, EaseOut) * breathe),
-            )
+            val alpha = 0.3f * phase(t, 120f, 800f, EaseOut) * breathe
+            val base = (0.55f + 0.45f * arrive) * layout.maxScale.pow(zoom) * 1.1f
+            drawBubble(layout, base * 1.3f, Indigo.copy(alpha = alpha * 0.5f))
+            drawBubble(layout, base * 1.18f, Indigo.copy(alpha = alpha * 0.7f))
+            drawBubble(layout, base * 1.06f, Indigo.copy(alpha = alpha))
         }
 
         // 3. Logo: blurs into focus with a springy scale, spins its sparkle, then blurs out as the camera dives through.
@@ -246,9 +242,9 @@ internal fun StartupSplash(onFinished: () -> Unit) {
                 .fillMaxSize()
                 .graphicsLayer {
                     val t = clock.value * TOTAL_MS
-                    val arrivalBlur = (1f - phase(t, LOGO_IN_START, LOGO_IN_END, EaseOut)) * 28f
-                    val diveBlur = phase(t, ZOOM_START, ZOOM_END, EaseIn) * 14f
-                    renderEffect = blurEffect(arrivalBlur + diveBlur)
+                    // Arrival only, in coarse steps so the effect is not rebuilt every frame; no blur during the dive.
+                    val arrivalBlur = (1f - phase(t, LOGO_IN_START, LOGO_IN_END, EaseOut)) * 20f
+                    renderEffect = blurEffect(kotlin.math.floor(arrivalBlur / 4f) * 4f)
                 },
         ) {
             val t = clock.value * TOTAL_MS
@@ -279,11 +275,7 @@ internal fun StartupSplash(onFinished: () -> Unit) {
         }
 
         // 5. Shock ring: a blurred ring racing outwards when the dive begins.
-        Canvas(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer { renderEffect = blurEffect(4f) },
-        ) {
+        Canvas(Modifier.fillMaxSize()) {
             val t = clock.value * TOTAL_MS
             val layout = SplashLayout(size.width, size.height)
             val ring = phase(t, ZOOM_START, ZOOM_END + 150f, EaseOut)
