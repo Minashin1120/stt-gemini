@@ -3,4 +3,5 @@
     <color name="app_bg">#F4F7FB</color>
     <color name="brand_start">#7374F5</color>
     <color name="brand_end">#4B4CCC</color>
+    <color name="splash_bg">#0B1020</color>
 </resources>

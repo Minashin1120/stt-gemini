@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.HourglassTop
@@ -39,9 +38,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.minashin1120.voxcribe.R
 import com.minashin1120.voxcribe.ui.theme.T
 
 @Composable
@@ -52,7 +53,7 @@ fun BrandMark(size: Int = 42) {
             .clip(RoundedCornerShape(13.dp))
             .background(Brush.linearGradient(listOf(Color(0xFF7374F5), Color(0xFF4B4CCC)))),
         contentAlignment = Alignment.Center
-    ) { Icon(Icons.Filled.GraphicEq, null, tint = Color.White, modifier = Modifier.size((size * 0.5).dp)) }
+    ) { Icon(painterResource(R.drawable.ic_logo_mark), null, tint = Color.Unspecified, modifier = Modifier.size((size * 0.62).dp)) }
 }
 
 /** base.html の .app-navbar（モバイル: トグルでドロップダウンパネル） */

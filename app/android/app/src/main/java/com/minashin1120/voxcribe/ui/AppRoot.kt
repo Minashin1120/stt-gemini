@@ -25,6 +25,7 @@ import com.minashin1120.voxcribe.ui.batch.BatchScreen
 import com.minashin1120.voxcribe.ui.common.ConfirmDialog
 import com.minashin1120.voxcribe.ui.common.ToastHost
 import com.minashin1120.voxcribe.ui.settings.SettingsScreen
+import com.minashin1120.voxcribe.ui.splash.SplashScreen
 import com.minashin1120.voxcribe.ui.theme.LocalAppTheme
 import com.minashin1120.voxcribe.ui.theme.Themes
 import com.minashin1120.voxcribe.ui.update.UpdateDialog
@@ -49,7 +50,8 @@ fun AppRoot(onRequestPermissions: () -> Unit, onInstallUpdate: (File) -> Unit) {
             app.workspace.openRecordingRequested = false
         }
     }
-    LaunchedEffect(Unit) { onRequestPermissions() }
+    var splash by rememberSaveable { mutableStateOf(true) }
+    LaunchedEffect(splash) { if (!splash) onRequestPermissions() }
     LaunchedEffect(Unit) { app.updates.checkOnStart() }
 
     val scheme = if (theme.isDark) darkColorScheme(primary = theme.primary, background = theme.bg, surface = theme.cardBg)
@@ -83,6 +85,7 @@ fun AppRoot(onRequestPermissions: () -> Unit, onInstallUpdate: (File) -> Unit) {
                     app.workspace.batchDonePrompt?.let { job -> BatchDoneModal(job, app.workspace) }
                     UpdateDialog(onInstall = onInstallUpdate)
                     ToastHost(app.toaster)
+                    if (splash) SplashScreen(onFinished = { splash = false })
                 }
             }
         }
