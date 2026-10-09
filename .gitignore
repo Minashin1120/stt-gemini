@@ -67,3 +67,6 @@ app/android/local.properties
 .github_pat
 .claude/
 .claude.json
+
+# Agent instructions (local only)
+AGENTS.md
