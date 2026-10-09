@@ -14,7 +14,6 @@ import com.minashin1120.voxcribe.update.UpdateController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 class VoxcribeApp : Application() {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -41,8 +40,7 @@ class VoxcribeApp : Application() {
         toaster = Toaster()
         workspace = WorkspaceController(this)
         toolbar = com.minashin1120.voxcribe.task.RecordingToolbar(this)
-        // 通知チャンネル作成などのBinder呼び出しで最初の描画を遅らせない
-        appScope.launch(Dispatchers.Default) { toolbar.refresh() }
+        toolbar.refresh()
         updates = UpdateController(this)
         RetentionCleaner.start(this)
     }
