@@ -38,6 +38,11 @@
             android:foregroundServiceType="microphone|dataSync" />
 
         <service
+            android:name=".update.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".task.ToolbarService"
             android:exported="false"
             android:foregroundServiceType="microphone|dataSync" />
