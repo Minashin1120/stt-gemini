@@ -28,14 +28,17 @@ import urllib.error
 import urllib.request
 
 ROOT = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-NOTES = os.path.join(ROOT, 'ローカルノート')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from notes_toc import notes_path  # noqa: E402
+
+NOTES = notes_path()
 REPO = 'Minashin1120/stt-gemini'
 SERVICE = 'stt-gemini'
 PENDING_H = '## 【保留中】更新後作業'
 STOP_H = '## 【停止中】更新後作業の失敗'
 # コミットしてはいけないもの（AGENTS.md「Git管理」）。status に出たら停止する。
 FORBIDDEN = ['app/venv/*', 'app/.env*', 'app/*.log', 'app/uploads/*', '.codex/*', '.gemini/*',
-             'cookies.txt', 'test.mp3', 'ローカルノート', 'app/android/.gradle/*',
+             'cookies.txt', 'test.mp3', os.path.relpath(NOTES, ROOT), 'app/android/.gradle/*',
              'app/android/*/build/*', 'app/android/build/*', '*local.properties']
 POLL_SEC = 20
 
@@ -85,7 +88,6 @@ def drop_section(lines, header):
 
 def refresh_toc():
     """節の増減で行番号がずれるため、目次（scripts/notes_toc.py）を更新する。"""
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     try:
         import notes_toc
         notes_toc.update()
